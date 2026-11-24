@@ -745,6 +745,18 @@ export class ThreeGearMachine {
     }
   }
 
+  // Slow cinematic push-in used when a host page reveals the picker
+  playOpeningDolly(durationMs = 2600) {
+    if (this.prefersReducedMotion() || this.state.povMode !== 'space') return;
+    this.cam.radius = this.cam.targetRadius * 1.55;
+    this._camLerpRate = 1.5;
+    if (this._dollyTimer) clearTimeout(this._dollyTimer);
+    this._dollyTimer = setTimeout(() => {
+      this._camLerpRate = null;
+      this._dollyTimer = null;
+    }, durationMs);
+  }
+
   _isPortrait() {
     return (this.camera.aspect || 1) < PORTRAIT_ASPECT;
   }
@@ -1411,7 +1423,7 @@ export class ThreeGearMachine {
         }
       }
 
-      const camLerp = reduced ? 1 : Math.min(1, dt * 6.5);
+      const camLerp = reduced ? 1 : Math.min(1, dt * (this._camLerpRate || 6.5));
       if (this.state.povMode === 'earth') {
         if (this.state.earthStep === 'room') {
           // 1. Update Space scene + Winding Key so Monitor Feed stays 100% live

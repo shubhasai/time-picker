@@ -39,6 +39,19 @@
 
     body.is-picking { overflow: hidden; }
 
+    /* While the picker irises open, the form recedes: slightly smaller, dimmer, out of focus */
+    .topbar, main {
+      transition: transform 1.1s cubic-bezier(0.7, 0, 0.2, 1), filter 1.1s ease, opacity 1.1s ease;
+    }
+
+    body.is-picking .topbar,
+    body.is-picking main {
+      transform: scale(0.965);
+      filter: blur(5px) brightness(0.55);
+      opacity: 0.85;
+      transition-duration: 1.7s;
+    }
+
     .topbar {
       display: flex;
       align-items: center;
@@ -377,18 +390,42 @@
     }
 
     /* Full-screen picker overlay */
+    /* Closed: still laid out (so the picker preloads at full size) but clipped to nothing.
+       Open: an iris grows from the date field until space covers the whole page. */
     .picker-overlay {
+      --ox: 50vw;
+      --oy: 50vh;
+      --r: 150vmax;
       position: fixed;
       inset: 0;
       z-index: 50;
       background: #03050b;
-    }
-
-    /* Hidden but still laid out, so the picker can preload at full size behind the form */
-    .picker-overlay[hidden] {
-      display: block;
       visibility: hidden;
       pointer-events: none;
+      clip-path: circle(0px at var(--ox) var(--oy));
+      transition: clip-path 0.9s cubic-bezier(0.6, 0, 0.3, 1), visibility 0s linear 0.9s;
+    }
+
+    .picker-overlay.is-open {
+      visibility: visible;
+      pointer-events: auto;
+      clip-path: circle(var(--r) at var(--ox) var(--oy));
+      transition: clip-path 1.9s cubic-bezier(0.5, 0, 0.2, 1), visibility 0s;
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .picker-overlay,
+      .picker-overlay.is-open,
+      .topbar,
+      main {
+        transition: none !important;
+      }
+
+      body.is-picking .topbar,
+      body.is-picking main {
+        transform: none;
+        filter: none;
+      }
     }
 
     .picker-overlay iframe {
@@ -506,7 +543,7 @@
     <footer>Imagined by Shubhasai · Built by Neon</footer>
   </main>
 
-  <div class="picker-overlay" id="picker-overlay" hidden role="dialog" aria-modal="true" aria-label="Date and time picker">
+  <div class="picker-overlay" id="picker-overlay" inert role="dialog" aria-modal="true" aria-label="Date and time picker">
     <div class="picker-loading" id="picker-loading">Loading the picker…</div>
   </div>
 
@@ -538,8 +575,27 @@
         overlay.appendChild(frame);
       }
 
+      var isOpen = false;
+
+      // Centre the iris on the date field, sized to just reach the farthest corner of the screen
+      function aimIris() {
+        var rect = btnPick.getBoundingClientRect();
+        var x = Math.min(Math.max(rect.left + rect.width / 2, 0), window.innerWidth);
+        var y = Math.min(Math.max(rect.top + rect.height / 2, 0), window.innerHeight);
+        var dx = Math.max(x, window.innerWidth - x);
+        var dy = Math.max(y, window.innerHeight - y);
+        overlay.style.setProperty('--ox', x + 'px');
+        overlay.style.setProperty('--oy', y + 'px');
+        overlay.style.setProperty('--r', Math.ceil(Math.hypot(dx, dy)) + 24 + 'px');
+      }
+
       function openPicker() {
-        overlay.hidden = false;
+        if (isOpen) return;
+        isOpen = true;
+        aimIris();
+        overlay.offsetWidth; // commit the iris origin before the transition starts
+        overlay.inert = false;
+        overlay.classList.add('is-open');
         document.body.classList.add('is-picking');
         loadPicker();
         if (frameReady) {
@@ -549,9 +605,13 @@
       }
 
       function closePicker() {
-        overlay.hidden = true;
+        if (!isOpen) return;
+        isOpen = false;
+        aimIris();
+        overlay.classList.remove('is-open');
+        overlay.inert = true;
         document.body.classList.remove('is-picking');
-        btnPick.focus();
+        btnPick.focus({ preventScroll: true });
       }
 
       function setError(fieldId, errId, show) {
@@ -568,7 +628,7 @@
           frameReady = true;
           loading.hidden = true;
           overlay.classList.add('is-ready');
-          if (overlay.hidden) {
+          if (!isOpen) {
             tellPicker('neon-picker:standby');
           } else {
             tellPicker('neon-picker:open');

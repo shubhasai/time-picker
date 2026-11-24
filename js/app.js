@@ -165,6 +165,7 @@ class FullScreenOrreryApp {
         // Nothing picked yet: start from the current time, not the time the form was loaded
         if (!this._embedHasSaved) this.syncToNow();
         this.editSelection();
+        this.machine.playOpeningDolly();
       } else if (type === 'neon-picker:standby') {
         if (standbyTimer) clearTimeout(standbyTimer);
         standbyTimer = setTimeout(() => {
@@ -504,8 +505,11 @@ class FullScreenOrreryApp {
       this.dom.savedEyebrow.textContent = 'SAVED DATE & TIME';
     }
 
-    this.dom.pickerView.hidden = true;
-    this.dom.savedView.hidden = false;
+    // Embedded: keep the last 3D frame on screen so the host's closing iris has something to show
+    if (!this.isEmbedded) {
+      this.dom.pickerView.hidden = true;
+      this.dom.savedView.hidden = false;
+    }
     this.machine.setPaused(true);
 
     window.dispatchEvent(
