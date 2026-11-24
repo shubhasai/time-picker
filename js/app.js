@@ -153,14 +153,30 @@ class FullScreenOrreryApp {
       btnCancel.addEventListener('click', () => this._closeEmbed());
     }
 
+    // The host preloads this page in the background. 'standby' = warm up the 3D scene
+    // briefly (compiles shaders, uploads textures) and then pause until 'open' arrives.
+    let standbyTimer = null;
     window.addEventListener('message', (e) => {
       if (e.origin !== window.location.origin || e.source !== window.parent) return;
-      if (e.data && e.data.type === 'neon-picker:open') {
+      const type = e.data && e.data.type;
+      if (type === 'neon-picker:open') {
+        if (standbyTimer) clearTimeout(standbyTimer);
+        standbyTimer = null;
+        // Nothing picked yet: start from the current time, not the time the form was loaded
+        if (!this._embedHasSaved) this.syncToNow();
         this.editSelection();
+      } else if (type === 'neon-picker:standby') {
+        if (standbyTimer) clearTimeout(standbyTimer);
+        standbyTimer = setTimeout(() => {
+          standbyTimer = null;
+          this.state.isSaved = true;
+          this.machine.setPaused(true);
+        }, 1500);
       }
     });
 
-    this.editSelection();
+    // Background preload: never pull keyboard focus out of the host form
+    this.editSelection({ focus: false });
     this._postToHost({ type: 'neon-picker:ready' });
   }
 
@@ -508,6 +524,7 @@ class FullScreenOrreryApp {
     );
 
     if (this.isEmbedded) {
+      this._embedHasSaved = true;
       this._postToHost({
         type: 'neon-picker:save',
         iso,
@@ -523,7 +540,7 @@ class FullScreenOrreryApp {
     this._announce(`Saved ${dateStr} at ${timeStr}. Press Edit Time to make changes.`);
   }
 
-  editSelection() {
+  editSelection({ focus = true } = {}) {
     this.state.isSaved = false;
     this.dom.savedView.hidden = true;
     this.dom.pickerView.hidden = false;
@@ -534,7 +551,7 @@ class FullScreenOrreryApp {
       }
     });
 
-    if (this.dom.btnSave) {
+    if (focus && this.dom.btnSave) {
       this.dom.btnSave.focus();
     }
     this._announce('Returned to 3D gear date and time editor.');

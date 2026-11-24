@@ -384,7 +384,12 @@
       background: #03050b;
     }
 
-    .picker-overlay[hidden] { display: none; }
+    /* Hidden but still laid out, so the picker can preload at full size behind the form */
+    .picker-overlay[hidden] {
+      display: block;
+      visibility: hidden;
+      pointer-events: none;
+    }
 
     .picker-overlay iframe {
       display: block;
@@ -519,17 +524,26 @@
       var frame = null;
       var frameReady = false;
 
+      function tellPicker(type) {
+        frame.contentWindow.postMessage({ type: type }, window.location.origin);
+      }
+
+      // Load the picker in the background as soon as the form is up, so opening it is instant
+      function loadPicker() {
+        if (frame) return;
+        frame = document.createElement('iframe');
+        frame.title = 'Date and time picker';
+        frame.src = 'index.html?embed=1';
+        frame.setAttribute('tabindex', '-1');
+        overlay.appendChild(frame);
+      }
+
       function openPicker() {
         overlay.hidden = false;
         document.body.classList.add('is-picking');
-
-        if (!frame) {
-          frame = document.createElement('iframe');
-          frame.title = 'Date and time picker';
-          frame.src = 'index.html?embed=1';
-          overlay.appendChild(frame);
-        } else if (frameReady) {
-          frame.contentWindow.postMessage({ type: 'neon-picker:open' }, window.location.origin);
+        loadPicker();
+        if (frameReady) {
+          tellPicker('neon-picker:open');
           frame.focus();
         }
       }
@@ -554,7 +568,12 @@
           frameReady = true;
           loading.hidden = true;
           overlay.classList.add('is-ready');
-          frame.focus();
+          if (overlay.hidden) {
+            tellPicker('neon-picker:standby');
+          } else {
+            tellPicker('neon-picker:open');
+            frame.focus();
+          }
         } else if (data.type === 'neon-picker:save') {
           inputWhen.value = data.iso;
           valWhen.textContent = data.display;
@@ -568,6 +587,12 @@
       });
 
       btnPick.addEventListener('click', openPicker);
+
+      if (document.readyState === 'complete') {
+        setTimeout(loadPicker, 200);
+      } else {
+        window.addEventListener('load', function () { setTimeout(loadPicker, 200); });
+      }
 
       document.getElementById('jump-when').addEventListener('click', function (e) {
         e.preventDefault();
