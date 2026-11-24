@@ -4,8 +4,8 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "deploy": "npm run build && wrangler deploy",
-    "preview": "wrangler dev"
+    "deploy": "npm run build && wrangler pages deploy dist --project-name time-picker --branch main",
+    "preview": "wrangler pages dev dist"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",
