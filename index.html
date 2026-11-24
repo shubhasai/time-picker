@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Celestial Orrery 3D — Full-Screen Golden Gear Date &amp; Time Picker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    // Embedded in a host page: flag it before first paint so the landing screen never flashes
+    if (/[?&]embed=1(&|$)/.test(location.search) && window.parent !== window) {
+      document.documentElement.setAttribute('data-embed', '1');
+    }
+  </script>
+  <link rel="stylesheet" href="styles.css">
+  <script defer src="js/temporal-model.js"></script>
+  <script type="module" src="js/app.js"></script>
+</head>
+<body data-sky="day">
+  <main class="space-stage" id="main-content">
+    <div id="picker-view" class="picker-view" hidden>
+      <canvas
+        id="gear-3d-canvas"
+        aria-label="Full-screen 3D celestial space with golden Date and Time gears, NASA Earth, Moon, Sun, Observatory Room, and Telescope eyepiece"
+      ></canvas>
+
+      <!-- Subtle Optical Eyepiece Reticle & Vignette (Earth POV Step 2: Telescope) -->
+      <div id="telescope-overlay" class="telescope-overlay" hidden aria-hidden="true">
+        <div class="telescope-vignette"></div>
+        <svg class="telescope-reticle" viewBox="0 0 200 200" focusable="false">
+          <circle cx="100" cy="100" r="68" fill="none" stroke="currentColor" stroke-width="0.45" stroke-dasharray="2 3" opacity="0.55" />
+          <circle cx="100" cy="100" r="14" fill="none" stroke="currentColor" stroke-width="0.6" opacity="0.65" />
+          <line x1="16" y1="100" x2="82" y2="100" stroke="currentColor" stroke-width="0.5" opacity="0.6" />
+          <line x1="118" y1="100" x2="184" y2="100" stroke="currentColor" stroke-width="0.5" opacity="0.6" />
+          <line x1="100" y1="16" x2="100" y2="82" stroke="currentColor" stroke-width="0.5" opacity="0.6" />
+          <line x1="100" y1="118" x2="100" y2="184" stroke="currentColor" stroke-width="0.5" opacity="0.6" />
+        </svg>
+        <div id="telescope-hud-info" class="telescope-hud-info">AZ 180° · ALT +22° · 1.0×</div>
+      </div>
+
+    <!-- Minimal Box-Free Text Output (Top-Left) -->
+    <section class="hud-text-output" aria-label="Date, time, and celestial selection readout">
+      <div class="readout-primary" id="readout-primary">TUE · 24 NOV 2026 · 12:58 PM</div>
+
+      <div class="readout-secondary">
+        <span id="readout-sky">India (UTC+05:30 · 77.2°E) · ☀ DAY +39° · FULL MOON</span>
+        <span class="sep" aria-hidden="true">·</span>
+        <button
+          type="button"
+          id="btn-copy-iso"
+          class="inline-text-action iso-copy"
+          aria-label="Copy ISO 8601 date-time string"
+        >2026-11-24T12:58</button>
+      </div>
+
+      <div class="readout-controls-line">
+        <span class="active-gear-text" id="active-gear-text">Driving: YEAR</span>
+        <span class="sep" aria-hidden="true">·</span>
+
+        <label class="visually-hidden" for="tz-select">Country Timezone</label>
+        <select id="tz-select" class="inline-select" aria-label="Country Timezone"></select>
+
+        <span class="sep" aria-hidden="true">·</span>
+        <button
+          type="button"
+          id="btn-format-toggle"
+          class="inline-text-action"
+          aria-pressed="false"
+        >12H / 24H</button>
+
+        <span class="sep" aria-hidden="true">·</span>
+        <button type="button" id="btn-now" class="inline-text-action">Now</button>
+      </div>
+    </section>
+
+      <!-- Top-Right POV Switch, Camera Zoom, and Save Action (ZERO boxes) -->
+      <div class="top-right-controls">
+        <nav class="pov-toggle" aria-label="Point of View switch">
+          <button
+            type="button"
+            id="btn-pov-space"
+            class="pov-btn is-active"
+            aria-pressed="true"
+          >Outer Space</button>
+          <span class="pov-divider" aria-hidden="true">/</span>
+          <button
+            type="button"
+            id="btn-pov-earth"
+            class="pov-btn"
+            aria-pressed="false"
+          >Earth POV</button>
+        </nav>
+
+        <nav class="earth-step-nav" id="earth-step-nav" hidden aria-label="Earth POV view step">
+          <button
+            type="button"
+            id="btn-earth-room"
+            class="earth-step-btn is-active"
+            aria-pressed="true"
+          >Room</button>
+          <span class="pov-divider" aria-hidden="true">/</span>
+          <button
+            type="button"
+            id="btn-earth-telescope"
+            class="earth-step-btn"
+            aria-pressed="false"
+          >Telescope</button>
+        </nav>
+
+        <div class="top-right-actions">
+          <div class="zoom-group" role="group" aria-label="Camera zoom">
+            <button type="button" id="btn-zoom-out" class="zoom-btn" aria-label="Zoom out">−</button>
+            <button type="button" id="btn-zoom-reset" class="zoom-btn zoom-readout" aria-label="Reset zoom to default">1.0×</button>
+            <button type="button" id="btn-zoom-in" class="zoom-btn" aria-label="Zoom in">+</button>
+          </div>
+          <span class="sep" aria-hidden="true">·</span>
+          <button type="button" id="btn-embed-cancel" class="inline-text-action embed-only" aria-label="Go back to the form without saving">Back</button>
+          <button type="button" id="btn-save" class="inline-text-action save-action">Save</button>
+        </div>
+      </div>
+
+      <!-- Quiet Bottom Hint Line (no boxes) -->
+      <p class="bottom-hint" id="bottom-hint">
+        Drag golden key to set gear · Click gear to engage · Click Earth for country · Drag space to orbit · Scroll or +/− to zoom
+      </p>
+
+      <!-- Clamped Plain-Text Earth Country Hover Tooltip -->
+      <div id="earth-tooltip" class="earth-tooltip" hidden role="status"></div>
+
+      <!-- Accessible Keyboard Spinbutton & Live Region -->
+      <button
+        type="button"
+        id="key-spinbutton"
+        class="visually-hidden"
+        role="spinbutton"
+        aria-label="Rotate mechanical golden winding key or remote knob"
+        aria-valuenow="2026"
+        aria-valuemin="1900"
+        aria-valuemax="2100"
+        aria-valuetext="Year 2026"
+      >Key Control</button>
+    </div>
+
+    <!-- Box-Free Current / Saved Date & Time View -->
+    <section id="saved-view" class="saved-view" aria-label="Selected date and time">
+      <div class="landing-nebula" aria-hidden="true"></div>
+      <div class="landing-stars" aria-hidden="true"></div>
+      <div class="landing-shooting-star" aria-hidden="true"></div>
+      <div class="landing-planet" aria-hidden="true"></div>
+
+      <nav class="landing-nav" aria-label="Site">
+        <a class="landing-nav-link" href="experience.html" target="_blank" rel="noopener">Experience <span aria-hidden="true">↗</span></a>
+      </nav>
+
+      <header class="landing-header">
+        <h1 class="landing-title">Time Picker</h1>
+        <p class="landing-tagline">A mechanical golden-gear orrery for choosing date &amp; time</p>
+      </header>
+
+      <div class="landing-center">
+        <div class="saved-eyebrow" id="saved-eyebrow">CURRENT DATE &amp; TIME</div>
+        <div class="saved-primary" id="saved-primary">TUE · 24 NOV 2026 · 12:58 PM</div>
+        <div class="saved-secondary" id="saved-sky"></div>
+        <div class="saved-actions">
+          <button
+            type="button"
+            id="saved-copy-iso"
+            class="inline-text-action iso-copy"
+            aria-label="Copy saved ISO 8601 date-time string"
+          >2026-11-24T12:58</button>
+          <span class="sep" aria-hidden="true">·</span>
+          <button type="button" id="btn-edit" class="inline-text-action edit-action">Edit Time</button>
+        </div>
+        <p class="landing-experience">Experience the picker by editing the time</p>
+      </div>
+
+      <footer class="landing-footer">
+        <p class="landing-howto">How to use <span class="landing-soon">Coming Soon</span></p>
+        <p class="landing-credit">Imagined by <strong>Shubhasai</strong> <span class="sep" aria-hidden="true">·</span> Built by <strong>Neon</strong></p>
+      </footer>
+    </section>
+
+    <div id="live-announcer" class="visually-hidden" aria-live="polite" aria-atomic="true"></div>
+  </main>
+</body>
+</html>

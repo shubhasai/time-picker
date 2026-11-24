@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Experience — Time Picker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f6f7fb;
+      --card: #ffffff;
+      --ink: #111827;
+      --ink-soft: #4b5563;
+      --ink-muted: #6b7280;
+      --line: #e5e7eb;
+      --line-strong: #d1d5db;
+      --accent: #4f46e5;
+      --accent-dark: #4338ca;
+      --accent-soft: #eef2ff;
+      --danger: #dc2626;
+      --success: #059669;
+      --radius: 10px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    body.is-picking { overflow: hidden; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px clamp(16px, 4vw, 40px);
+      background: var(--card);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .brand {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      text-decoration: none;
+    }
+
+    .brand-mark {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #6366f1, #4f46e5 55%, #f59e0b);
+    }
+
+    .badge {
+      padding: 3px 10px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    main {
+      width: min(100% - 32px, 620px);
+      margin: clamp(24px, 6vh, 56px) auto 64px;
+    }
+
+    h1 {
+      margin: 0 0 6px;
+      font-size: clamp(1.5rem, 4.4vw, 1.9rem);
+      line-height: 1.2;
+      letter-spacing: -0.02em;
+      text-wrap: balance;
+    }
+
+    .lede {
+      margin: 0 0 24px;
+      color: var(--ink-soft);
+    }
+
+    .notice {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      margin: -8px 0 20px;
+      font-size: 0.88rem;
+      color: var(--ink-soft);
+    }
+
+    .notice svg {
+      flex: none;
+      margin-top: 3px;
+      color: var(--success);
+    }
+
+    .notice a {
+      color: var(--accent);
+      font-weight: 600;
+      text-underline-offset: 3px;
+    }
+
+    .notice a:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 2px;
+      border-radius: 4px;
+    }
+
+    /* The one question that matters: a soft tint and a small tag, nothing louder */
+    .field-featured {
+      margin-inline: -12px;
+      padding: 14px 12px 16px;
+      border-radius: 12px;
+      background: linear-gradient(180deg, #f5f6ff, #fafaff);
+      box-shadow: inset 3px 0 0 var(--accent);
+      scroll-margin-top: 20px;
+    }
+
+    .field-featured .datetime-trigger:not(.has-value) {
+      border-color: color-mix(in srgb, var(--accent) 45%, var(--line-strong));
+      animation: soft-ring 2.8s ease-in-out 0.8s 3;
+    }
+
+    .try-tag {
+      display: inline-block;
+      margin-bottom: 8px;
+      padding: 2px 9px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    @keyframes soft-ring {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(79, 70, 229, 0); }
+      50% { box-shadow: 0 0 0 5px rgba(79, 70, 229, 0.14); }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      .field-featured .datetime-trigger { animation: none !important; }
+      html { scroll-behavior: auto !important; }
+    }
+
+    html { scroll-behavior: smooth; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: clamp(18px, 4vw, 30px);
+      box-shadow: 0 1px 2px rgba(17, 24, 39, 0.04), 0 8px 24px rgba(17, 24, 39, 0.05);
+    }
+
+    .field { margin-bottom: 22px; }
+
+    .field > label,
+    .field > .label,
+    fieldset > legend {
+      display: block;
+      margin-bottom: 6px;
+      padding: 0;
+      font-size: 0.92rem;
+      font-weight: 600;
+    }
+
+    .hint {
+      margin: -2px 0 8px;
+      font-size: 0.84rem;
+      color: var(--ink-muted);
+    }
+
+    fieldset {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      min-width: 0;
+    }
+
+    input[type="text"],
+    select,
+    textarea,
+    .datetime-trigger {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      background: #fff;
+      color: var(--ink);
+      font: inherit;
+      transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    textarea { min-height: 88px; resize: vertical; }
+
+    input[type="text"]:focus-visible,
+    select:focus-visible,
+    textarea:focus-visible,
+    .datetime-trigger:focus-visible,
+    .btn:focus-visible,
+    .choice input:focus-visible + span {
+      outline: none;
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.22);
+    }
+
+    .choices {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 8px;
+    }
+
+    .choice { position: relative; display: block; cursor: pointer; }
+
+    .choice input {
+      position: absolute;
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    .choice span {
+      display: block;
+      padding: 10px 12px;
+      border: 1px solid var(--line-strong);
+      border-radius: var(--radius);
+      font-size: 0.92rem;
+      transition: border-color 0.15s ease, background 0.15s ease;
+    }
+
+    .choice:hover span { border-color: var(--accent); }
+
+    .choice input:checked + span {
+      border-color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent-dark);
+      font-weight: 600;
+    }
+
+    .datetime-trigger {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .datetime-trigger:hover { border-color: var(--accent); }
+
+    .datetime-trigger svg { flex: none; color: var(--accent); }
+
+    .datetime-value {
+      flex: 1;
+      min-width: 0;
+      color: var(--ink-muted);
+      overflow-wrap: anywhere;
+    }
+
+    .datetime-trigger.has-value .datetime-value {
+      color: var(--ink);
+      font-weight: 600;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .datetime-action {
+      flex: none;
+      color: var(--accent);
+      font-size: 0.84rem;
+      font-weight: 600;
+    }
+
+    .error {
+      margin: 6px 0 0;
+      font-size: 0.84rem;
+      color: var(--danger);
+    }
+
+    .error[hidden] { display: none; }
+
+    .field.is-invalid input[type="text"],
+    .field.is-invalid .datetime-trigger {
+      border-color: var(--danger);
+    }
+
+    .actions {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      margin-top: 6px;
+    }
+
+    .btn {
+      padding: 10px 18px;
+      border: 1px solid transparent;
+      border-radius: var(--radius);
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease;
+    }
+
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-dark); }
+
+    .btn-ghost {
+      background: #fff;
+      border-color: var(--line-strong);
+      color: var(--ink-soft);
+    }
+
+    .btn-ghost:hover { border-color: var(--ink-muted); }
+
+    .note {
+      font-size: 0.82rem;
+      color: var(--ink-muted);
+    }
+
+    .result[hidden], form[hidden] { display: none; }
+
+    .result-icon {
+      display: grid;
+      place-items: center;
+      width: 44px;
+      height: 44px;
+      margin-bottom: 14px;
+      border-radius: 50%;
+      background: #d1fae5;
+      color: var(--success);
+    }
+
+    .result h2 {
+      margin: 0 0 6px;
+      font-size: 1.3rem;
+      letter-spacing: -0.01em;
+    }
+
+    .result p { margin: 0 0 16px; color: var(--ink-soft); }
+
+    .summary {
+      margin: 0 0 20px;
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+    }
+
+    .summary div {
+      display: grid;
+      grid-template-columns: minmax(0, 11rem) minmax(0, 1fr);
+      gap: 12px;
+      padding: 10px 12px;
+    }
+
+    .summary div + div { border-top: 1px solid var(--line); }
+
+    .summary dt { color: var(--ink-muted); font-size: 0.88rem; }
+    .summary dd { margin: 0; font-weight: 500; overflow-wrap: anywhere; }
+
+    footer {
+      margin-top: 22px;
+      text-align: center;
+      font-size: 0.82rem;
+      color: var(--ink-muted);
+    }
+
+    /* Full-screen picker overlay */
+    .picker-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      background: #03050b;
+    }
+
+    .picker-overlay[hidden] { display: none; }
+
+    .picker-overlay iframe {
+      display: block;
+      width: 100%;
+      height: 100%;
+      border: 0;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+
+    .picker-overlay.is-ready iframe { opacity: 1; }
+
+    .picker-loading {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: #cdc4b3;
+      font-size: 0.9rem;
+      pointer-events: none;
+    }
+
+    .picker-loading[hidden] { display: none; }
+
+    @media (max-width: 520px) {
+      .summary div { grid-template-columns: 1fr; gap: 2px; }
+      .actions .btn { flex: 1 1 auto; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="index.html">
+      <span class="brand-mark" aria-hidden="true"></span>
+      Time Picker
+    </a>
+    <span class="badge">Demo form</span>
+  </header>
+
+  <main>
+    <h1>Quick onboarding survey</h1>
+    <p class="lede">Five very serious questions. One of them needs a date and time, and that's where the picker comes in.</p>
+
+    <p class="notice">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg>
+      <span>We don't save anything, and you don't need to fill this in. <a href="#field-when" id="jump-when">Skip to the date picker</a></span>
+    </p>
+
+    <div class="card">
+      <form id="survey" novalidate>
+        <div class="field" id="field-name">
+          <label for="q-name">What should we call you?</label>
+          <input type="text" id="q-name" name="name" autocomplete="given-name" placeholder="e.g. Captain Spreadsheet">
+          <p class="error" id="err-name" hidden>Give us something to call you.</p>
+        </div>
+
+        <fieldset class="field">
+          <legend>How many browser tabs do you have open right now?</legend>
+          <div class="choices">
+            <label class="choice"><input type="radio" name="tabs" value="Under 10, I'm a minimalist" checked><span>Under 10, I'm a minimalist</span></label>
+            <label class="choice"><input type="radio" name="tabs" value="Somewhere between 10 and 50"><span>Somewhere between 10 and 50</span></label>
+            <label class="choice"><input type="radio" name="tabs" value="I stopped counting in 2019"><span>I stopped counting in 2019</span></label>
+            <label class="choice"><input type="radio" name="tabs" value="My laptop is now a space heater"><span>My laptop is now a space heater</span></label>
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <label for="q-pizza">Pineapple on pizza?</label>
+          <select id="q-pizza" name="pizza">
+            <option>Yes, and I'll defend it in a meeting</option>
+            <option>Only when nobody is watching</option>
+            <option>Absolutely not</option>
+            <option>I'd rather not start a war</option>
+          </select>
+        </div>
+
+        <div class="field field-featured" id="field-when">
+          <span class="try-tag" aria-hidden="true">Try the picker here</span>
+          <span class="label" id="lbl-when">When should the robots officially take over your inbox?</span>
+          <p class="hint" id="hint-when">Pick a date and time. This opens the 3D picker; hit Save there to come back.</p>
+          <button type="button" class="datetime-trigger" id="btn-pick" aria-labelledby="lbl-when val-when" aria-describedby="hint-when">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>
+            <span class="datetime-value" id="val-when">Select date &amp; time</span>
+            <span class="datetime-action" id="act-when" aria-hidden="true">Open picker</span>
+          </button>
+          <input type="hidden" id="q-when" name="when">
+          <p class="error" id="err-when" hidden>Pick a date and time with the picker.</p>
+        </div>
+
+        <div class="field">
+          <label for="q-confess">Anything you'd like to confess to the product team?</label>
+          <textarea id="q-confess" name="confess" placeholder="Optional. We won't judge. Much."></textarea>
+        </div>
+
+        <div class="actions">
+          <button type="submit" class="btn btn-primary">Submit answers</button>
+          <span class="note">Demo only: nothing is saved or sent anywhere.</span>
+        </div>
+      </form>
+
+      <section class="result" id="result" hidden aria-live="polite">
+        <div class="result-icon" aria-hidden="true">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>
+        </div>
+        <h2 id="result-title" tabindex="-1">All set</h2>
+        <p>Here's what you told us. It stays in this tab.</p>
+        <dl class="summary" id="summary"></dl>
+        <div class="actions">
+          <button type="button" class="btn btn-ghost" id="btn-again">Fill it in again</button>
+        </div>
+      </section>
+    </div>
+
+    <footer>Imagined by Shubhasai · Built by Neon</footer>
+  </main>
+
+  <div class="picker-overlay" id="picker-overlay" hidden role="dialog" aria-modal="true" aria-label="Date and time picker">
+    <div class="picker-loading" id="picker-loading">Loading the picker…</div>
+  </div>
+
+  <script>
+    (function () {
+      var form = document.getElementById('survey');
+      var result = document.getElementById('result');
+      var overlay = document.getElementById('picker-overlay');
+      var loading = document.getElementById('picker-loading');
+      var btnPick = document.getElementById('btn-pick');
+      var valWhen = document.getElementById('val-when');
+      var actWhen = document.getElementById('act-when');
+      var inputWhen = document.getElementById('q-when');
+      var inputName = document.getElementById('q-name');
+      var frame = null;
+      var frameReady = false;
+
+      function openPicker() {
+        overlay.hidden = false;
+        document.body.classList.add('is-picking');
+
+        if (!frame) {
+          frame = document.createElement('iframe');
+          frame.title = 'Date and time picker';
+          frame.src = 'index.html?embed=1';
+          overlay.appendChild(frame);
+        } else if (frameReady) {
+          frame.contentWindow.postMessage({ type: 'neon-picker:open' }, window.location.origin);
+          frame.focus();
+        }
+      }
+
+      function closePicker() {
+        overlay.hidden = true;
+        document.body.classList.remove('is-picking');
+        btnPick.focus();
+      }
+
+      function setError(fieldId, errId, show) {
+        document.getElementById(fieldId).classList.toggle('is-invalid', show);
+        document.getElementById(errId).hidden = !show;
+      }
+
+      window.addEventListener('message', function (e) {
+        if (e.origin !== window.location.origin) return;
+        if (!frame || e.source !== frame.contentWindow) return;
+        var data = e.data || {};
+
+        if (data.type === 'neon-picker:ready') {
+          frameReady = true;
+          loading.hidden = true;
+          overlay.classList.add('is-ready');
+          frame.focus();
+        } else if (data.type === 'neon-picker:save') {
+          inputWhen.value = data.iso;
+          valWhen.textContent = data.display;
+          actWhen.textContent = 'Change';
+          btnPick.classList.add('has-value');
+          setError('field-when', 'err-when', false);
+          closePicker();
+        } else if (data.type === 'neon-picker:cancel') {
+          closePicker();
+        }
+      });
+
+      btnPick.addEventListener('click', openPicker);
+
+      document.getElementById('jump-when').addEventListener('click', function (e) {
+        e.preventDefault();
+        document.getElementById('field-when').scrollIntoView({ block: 'center' });
+        btnPick.focus({ preventScroll: true });
+      });
+
+      inputName.addEventListener('input', function () {
+        if (inputName.value.trim()) setError('field-name', 'err-name', false);
+      });
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        var name = inputName.value.trim();
+        var missingName = !name;
+        var missingWhen = !inputWhen.value;
+        setError('field-name', 'err-name', missingName);
+        setError('field-when', 'err-when', missingWhen);
+
+        if (missingName) { inputName.focus(); return; }
+        if (missingWhen) { btnPick.focus(); return; }
+
+        var data = new FormData(form);
+        var rows = [
+          ['Name', name],
+          ['Open tabs', data.get('tabs')],
+          ['Pineapple on pizza', data.get('pizza')],
+          ['Robot inbox takeover', valWhen.textContent + ' (' + inputWhen.value + ')'],
+          ['Confession', (data.get('confess') || '').trim() || 'Nothing to confess']
+        ];
+
+        var summary = document.getElementById('summary');
+        summary.textContent = '';
+        rows.forEach(function (row) {
+          var wrap = document.createElement('div');
+          var dt = document.createElement('dt');
+          var dd = document.createElement('dd');
+          dt.textContent = row[0];
+          dd.textContent = row[1];
+          wrap.appendChild(dt);
+          wrap.appendChild(dd);
+          summary.appendChild(wrap);
+        });
+
+        document.getElementById('result-title').textContent = 'All set, ' + name;
+        form.hidden = true;
+        result.hidden = false;
+        document.getElementById('result-title').focus();
+      });
+
+      document.getElementById('btn-again').addEventListener('click', function () {
+        form.reset();
+        inputWhen.value = '';
+        valWhen.textContent = 'Select date & time';
+        actWhen.textContent = 'Open picker';
+        btnPick.classList.remove('has-value');
+        result.hidden = true;
+        form.hidden = false;
+        inputName.focus();
+      });
+    })();
+  </script>
+</body>
+</html>
