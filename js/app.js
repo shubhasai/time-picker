@@ -1,5 +1,5 @@
 /**
- * Celestial Orrery 3D — Minimal Full-Screen Box-Free Controller.
+ * Time Theory — Minimal Full-Screen Box-Free Controller.
  * Manages Temporal Plain date/time state, 2-POV toggle ('space' <-> 'earth'),
  * box-free plain text readout, 3D Earth country selection, and keyboard rotation.
  */
