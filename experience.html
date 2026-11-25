@@ -4,6 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Experience — Time Theory</title>
+  <meta name="description" content="Try the 3D Golden-Gear Date & Time Picker embedded inside a live onboarding survey form.">
+  <meta name="author" content="Shubhasai (@m_shubhasai)">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Time Theory">
+  <meta property="og:title" content="Experience Time Theory — 3D Golden-Gear Date &amp; Time Picker">
+  <meta property="og:description" content="Try the 3D Golden-Gear Date &amp; Time Picker embedded inside a live form.">
+  <meta property="og:url" content="https://timetheory.pages.dev/experience.html">
+  <meta property="og:image" content="https://timetheory.pages.dev/assets/og-thumbnail.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Time Theory 3D golden-gear gyroscope date and time picker with Earth, Moon, and Sun">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:creator" content="@m_shubhasai">
+  <meta name="twitter:title" content="Experience Time Theory — 3D Golden-Gear Date &amp; Time Picker">
+  <meta name="twitter:description" content="Try the 3D Golden-Gear Date &amp; Time Picker by @m_shubhasai in a live form.">
+  <meta name="twitter:image" content="https://timetheory.pages.dev/assets/og-thumbnail.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -389,6 +406,20 @@
       color: var(--ink-muted);
     }
 
+    footer a {
+      color: inherit;
+      text-decoration: underline;
+      text-decoration-color: rgba(107, 114, 128, 0.45);
+      text-underline-offset: 3px;
+      transition: color 0.16s ease, text-decoration-color 0.16s ease;
+    }
+
+    footer a:hover,
+    footer a:focus-visible {
+      color: var(--accent);
+      text-decoration-color: var(--accent);
+    }
+
     /* Full-screen picker overlay */
     /* Closed: still laid out (so the picker preloads at full size) but clipped to nothing.
        Open: an iris grows from the date field until space covers the whole page. */
@@ -540,7 +571,7 @@
       </section>
     </div>
 
-    <footer>Imagined by Shubhasai · Build with Neon and Hydrogen</footer>
+    <footer>Imagined by <a href="https://x.com/m_shubhasai" target="_blank" rel="noopener noreferrer">Shubhasai (@m_shubhasai)</a> · Build with Neon and Hydrogen</footer>
   </main>
 
   <div class="picker-overlay" id="picker-overlay" inert role="dialog" aria-modal="true" aria-label="Date and time picker">

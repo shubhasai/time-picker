@@ -114,7 +114,9 @@ class FullScreenOrreryApp {
       mobileGearBtns: Array.from(document.querySelectorAll('.mobile-gear-btn[data-gear-id]')),
       earthTooltip: document.getElementById('earth-tooltip'),
       keySpinbutton: document.getElementById('key-spinbutton'),
-      liveAnnouncer: document.getElementById('live-announcer')
+      liveAnnouncer: document.getElementById('live-announcer'),
+      navExperienceLink: document.getElementById('nav-experience-link'),
+      experienceNudge: document.getElementById('experience-nudge')
     };
 
     this.machine = new ThreeGearMachine(this.dom.canvas, {
@@ -985,6 +987,21 @@ class FullScreenOrreryApp {
     this.dom.btnZoomReset.addEventListener('click', () => this.machine.resetZoom());
     this.dom.btnSave.addEventListener('click', () => this.saveSelection());
     this.dom.btnEdit.addEventListener('click', () => this.editSelection());
+
+    const dismissExperienceNudge = () => {
+      document.documentElement.removeAttribute('data-nudge-experience');
+      if (this.dom.experienceNudge) this.dom.experienceNudge.hidden = true;
+    };
+    if (document.documentElement.hasAttribute('data-nudge-experience') && this.dom.experienceNudge) {
+      this.dom.experienceNudge.hidden = false;
+    }
+    if (this.dom.navExperienceLink) {
+      this.dom.navExperienceLink.addEventListener('click', dismissExperienceNudge);
+    }
+    if (this.dom.experienceNudge) {
+      this.dom.experienceNudge.addEventListener('click', dismissExperienceNudge);
+    }
+    this.dom.btnEdit.addEventListener('click', dismissExperienceNudge);
 
     if (this.dom.btnClusterDate) {
       this.dom.btnClusterDate.addEventListener('click', () => {

@@ -4,6 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Time Theory — 3D Golden-Gear Date &amp; Time Picker</title>
+  <meta name="description" content="Interactive 3D golden-gear date and time picker with NASA Earth, Moon phase, solar horizon optics, and observatory telescope view.">
+  <meta name="author" content="Shubhasai (@m_shubhasai)">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Time Theory">
+  <meta property="og:title" content="Time Theory — 3D Golden-Gear Date &amp; Time Picker">
+  <meta property="og:description" content="Interactive 3D golden-gear date and time picker with NASA Earth, Moon phase, solar horizon optics, and observatory telescope view.">
+  <meta property="og:url" content="https://timetheory.pages.dev/">
+  <meta property="og:image" content="https://timetheory.pages.dev/assets/og-thumbnail.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Time Theory 3D golden-gear gyroscope date and time picker with Earth, Moon, and Sun">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:creator" content="@m_shubhasai">
+  <meta name="twitter:title" content="Time Theory — 3D Golden-Gear Date &amp; Time Picker">
+  <meta name="twitter:description" content="Interactive 3D golden-gear date and time picker by @m_shubhasai.">
+  <meta name="twitter:image" content="https://timetheory.pages.dev/assets/og-thumbnail.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -12,10 +29,14 @@
     if (/[?&]embed=1(&|$)/.test(location.search) && window.parent !== window) {
       document.documentElement.setAttribute('data-embed', '1');
     }
+    // Shareable nudge link (?try=experience, ?nudge=experience, or #experience) highlights the Experience tab
+    if (/[?&](try|nudge)=/i.test(location.search) || /^#experience$/i.test(location.hash)) {
+      document.documentElement.setAttribute('data-nudge-experience', '1');
+    }
   </script>
-  <link rel="stylesheet" href="styles.css?v=12">
+  <link rel="stylesheet" href="styles.css?v=13">
   <script defer src="js/temporal-model.js"></script>
-  <script type="module" src="js/app.js?v=13"></script>
+  <script type="module" src="js/app.js?v=14"></script>
 </head>
 <body data-sky="day">
   <main class="space-stage" id="main-content">
@@ -199,7 +220,14 @@
       <header class="landing-topbar">
         <h1 class="landing-title">Time Theory</h1>
         <nav class="landing-nav" aria-label="Site">
-          <a class="landing-nav-link" href="experience.html" target="_blank" rel="noopener">Experience <span aria-hidden="true">↗</span></a>
+          <a class="landing-nav-link" id="nav-experience-link" href="experience.html" target="_blank" rel="noopener">
+            <span class="experience-beacon" aria-hidden="true"></span>
+            Experience <span aria-hidden="true">↗</span>
+          </a>
+          <a class="experience-nudge" id="experience-nudge" href="experience.html" target="_blank" rel="noopener" hidden>
+            <span class="experience-nudge-arrow" aria-hidden="true">↑</span>
+            Try the picker in a live form
+          </a>
         </nav>
       </header>
 
@@ -223,7 +251,7 @@
       <footer class="landing-footer">
         <span>How to use (Coming Soon)</span>
         <span class="sep" aria-hidden="true">·</span>
-        <span>Imagined by <strong>Shubhasai</strong> · Build with <strong>Neon</strong> and <strong>Hydrogen</strong></span>
+        <span>Imagined by <a class="landing-credit-link" href="https://x.com/m_shubhasai" target="_blank" rel="noopener noreferrer"><strong>Shubhasai</strong> (@m_shubhasai)</a> · Build with <strong>Neon</strong> and <strong>Hydrogen</strong></span>
       </footer>
     </section>
 
