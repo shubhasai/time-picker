@@ -7,7 +7,7 @@
  *  4. Tripod-mounted brass refractor telescope on the right side (click to enter Step 2 Sky View).
  */
 import * as THREE from '../vendor/three.module.min.js';
-import { GOLD_HEX, GOLD_BRIGHT_HEX, createRemoteControllerRig } from './three-gear-factory.js';
+import { GOLD_HEX, GOLD_BRIGHT_HEX, createRemoteControllerRig } from './three-gear-factory.js?v=10';
 
 const DEG_TO_RAD = Math.PI / 180;
 
@@ -817,6 +817,7 @@ export class ObservatoryRoom {
 
   getRayTargets() {
     return [
+      ...(this.deskController.doneHitMeshes || []),
       ...this.deskController.knobHitMeshes,
       ...this.deskController.buttonHitMeshes,
       ...this.deskController.bodyHitMeshes,

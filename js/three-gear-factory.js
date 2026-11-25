@@ -780,7 +780,7 @@ export function createRemoteControllerRig(mats) {
 
   // Chamfered anodized gunmetal unibody
   const bw = 1.50;
-  const bh = 2.48;
+  const bh = 2.76;
   const br = 0.20;
   const bodyShape = makeRoundedRect(bw, bh, br);
 
@@ -836,7 +836,7 @@ export function createRemoteControllerRig(mats) {
   for (const side of [-1, 1]) {
     for (let i = 0; i < 9; i++) {
       const rib = new THREE.Mesh(ribGeo, elastomerMat);
-      rib.position.set(side * (bw / 2 + 0.024), -0.82 + i * 0.135, 0);
+      rib.position.set(side * (bw / 2 + 0.024), -0.94 + i * 0.145, 0);
       root.add(rib);
     }
   }
@@ -847,7 +847,7 @@ export function createRemoteControllerRig(mats) {
   const screwSocketGeo = new THREE.CylinderGeometry(0.018, 0.018, 0.026, 6);
   screwSocketGeo.rotateX(Math.PI / 2);
   for (const sx of [-0.61, 0.61]) {
-    for (const sy of [-1.12, 1.12]) {
+    for (const sy of [-1.26, 1.26]) {
       const screw = new THREE.Mesh(screwHeadGeo, mats.machinedSteel);
       screw.position.set(sx, sy, 0.145);
       root.add(screw);
@@ -901,7 +901,7 @@ export function createRemoteControllerRig(mats) {
     mats.machinedSteel
   );
   txBezel.rotation.x = Math.PI / 2;
-  txBezel.position.set(0.46, 1.135, 0.146);
+  txBezel.position.set(0.46, 1.26, 0.146);
   root.add(txBezel);
 
   const txLedMat = new THREE.MeshStandardMaterial({
@@ -916,7 +916,7 @@ export function createRemoteControllerRig(mats) {
     txLedMat
   );
   txLed.scale.set(1, 1, 0.6);
-  txLed.position.set(0.46, 1.135, 0.155);
+  txLed.position.set(0.46, 1.26, 0.155);
   root.add(txLed);
 
   // Recessed Sapphire-Glass Live OLED Telemetry Screen
@@ -924,7 +924,7 @@ export function createRemoteControllerRig(mats) {
     new THREE.BoxGeometry(1.16, 0.48, 0.032),
     mats.darkBronze
   );
-  oledFrame.position.set(0, 0.83, 0.146);
+  oledFrame.position.set(0, 0.94, 0.146);
   oledFrame.userData = { interactiveType: 'remoteBody' };
   root.add(oledFrame);
 
@@ -940,7 +940,7 @@ export function createRemoteControllerRig(mats) {
     new THREE.PlaneGeometry(1.08, 0.41),
     new THREE.MeshBasicMaterial({ map: oledTex })
   );
-  oledScreen.position.set(0, 0.83, 0.165);
+  oledScreen.position.set(0, 0.94, 0.165);
   oledScreen.userData = { interactiveType: 'remoteBody' };
   root.add(oledScreen);
 
@@ -957,7 +957,7 @@ export function createRemoteControllerRig(mats) {
       depthWrite: false
     })
   );
-  oledGlass.position.set(0, 0.83, 0.171);
+  oledGlass.position.set(0, 0.94, 0.171);
   oledGlass.userData = { interactiveType: 'remoteBody' };
   root.add(oledGlass);
 
@@ -1041,7 +1041,7 @@ export function createRemoteControllerRig(mats) {
 
   for (const b of btnSpecs) {
     const bx = (b.col - 1) * 0.42;
-    const by = b.row === 0 ? 0.36 : -0.02;
+    const by = b.row === 0 ? 0.47 : 0.10;
 
     // Stationary brass bezel socket
     const socket = new THREE.Mesh(socketGeo, mats.antiqueGold);
@@ -1125,7 +1125,7 @@ export function createRemoteControllerRig(mats) {
 
   // Prominent 36-Flute Knurled Solid Brass Rotary Jog Wheel + Vernier Scale Collar
   const knobPivot = new THREE.Group();
-  knobPivot.position.set(0, -0.69, 0.145);
+  knobPivot.position.set(0, -0.57, 0.145);
   root.add(knobPivot);
 
   const collarGeo = new THREE.CylinderGeometry(0.49, 0.52, 0.032, 48);
@@ -1256,6 +1256,64 @@ export function createRemoteControllerRig(mats) {
     m.userData = { interactiveType: 'key' };
   }
 
+  // Tactile Lower-Chin 3D '✓ DONE' Button (returns camera focus to Observatory Room)
+  const doneBezel = new THREE.Mesh(
+    new THREE.BoxGeometry(0.72, 0.21, 0.026),
+    mats.antiqueGold
+  );
+  doneBezel.position.set(0, -1.23, 0.146);
+  doneBezel.userData = { interactiveType: 'remoteDone' };
+  root.add(doneBezel);
+
+  const doneSideMat = mats.ebonySlate.clone();
+  const donePlunger = new THREE.Mesh(
+    new THREE.BoxGeometry(0.66, 0.16, 0.044),
+    doneSideMat
+  );
+  donePlunger.position.set(0, -1.23, 0.162);
+  donePlunger.userData = { interactiveType: 'remoteDone' };
+  root.add(donePlunger);
+
+  const doneCanvas = document.createElement('canvas');
+  doneCanvas.width = 256;
+  doneCanvas.height = 64;
+  const doneCtx = doneCanvas.getContext('2d');
+  const doneTex = new THREE.CanvasTexture(doneCanvas);
+  doneTex.colorSpace = THREE.SRGBColorSpace;
+  doneTex.minFilter = THREE.LinearFilter;
+
+  const doneFace = new THREE.Mesh(
+    new THREE.PlaneGeometry(0.64, 0.145),
+    new THREE.MeshBasicMaterial({ map: doneTex })
+  );
+  doneFace.position.set(0, -1.23, 0.186);
+  doneFace.userData = { interactiveType: 'remoteDone' };
+  root.add(doneFace);
+
+  let doneHovered = false;
+  let remoteFocused = false;
+  const drawDone = () => {
+    doneCtx.clearRect(0, 0, 256, 64);
+    doneCtx.fillStyle = doneHovered ? '#2f2410' : remoteFocused ? '#1c180f' : '#11141c';
+    roundRect(doneCtx, 4, 4, 248, 56, 12);
+    doneCtx.fill();
+    doneCtx.lineWidth = doneHovered || remoteFocused ? 4 : 3;
+    doneCtx.strokeStyle = doneHovered ? '#fff0b8' : remoteFocused ? '#f7e1a0' : '#b8944a';
+    doneCtx.stroke();
+
+    doneCtx.fillStyle = doneHovered ? '#fffaf0' : '#f7e1a0';
+    doneCtx.font = '700 28px "JetBrains Mono", monospace';
+    doneCtx.textAlign = 'center';
+    doneCtx.textBaseline = 'middle';
+    doneCtx.fillText('✓ DONE', 128, 34);
+    doneTex.needsUpdate = true;
+
+    doneSideMat.color.setHex(doneHovered ? 0x6b5122 : remoteFocused ? 0x3b2e16 : 0x16181f);
+  };
+  drawDone();
+
+  const doneHitMeshes = [doneBezel, donePlunger, doneFace];
+
   return {
     root,
     knobPivot,
@@ -1264,6 +1322,7 @@ export function createRemoteControllerRig(mats) {
     hintMat,
     knobHitMeshes,
     buttonHitMeshes,
+    doneHitMeshes,
     bodyHitMeshes: [bodyMesh, deckMesh, bezelMesh, collar, scaleRing, oledFrame, oledScreen, oledGlass],
     setActiveGear(gearId) {
       for (const [id, entry] of remoteButtons.entries()) {
@@ -1282,6 +1341,18 @@ export function createRemoteControllerRig(mats) {
       knurlBrassMat.color.setHex(hovered ? GOLD_BRIGHT_HEX : GOLD_HEX);
       knurlBrassMat.roughness = hovered ? 0.16 : 0.26;
     },
+    setDoneHovered(hovered) {
+      const next = Boolean(hovered);
+      if (doneHovered === next) return;
+      doneHovered = next;
+      drawDone();
+    },
+    setRemoteFocused(focused) {
+      const next = Boolean(focused);
+      if (remoteFocused === next) return;
+      remoteFocused = next;
+      drawDone();
+    },
     setHintOpacity(val) {
       hintMat.opacity = val;
       hintGroup.visible = val > 0.02;
@@ -1291,6 +1362,367 @@ export function createRemoteControllerRig(mats) {
     },
     updateDisplay(info) {
       drawOled(info);
+    }
+  };
+}
+
+/**
+ * Connected dual-face horological gyroscope rig (unified across Desktop, Mobile & Monitor):
+ * - Symmetric zero-gravity vertical steel spindle with top & bottom bronze finials and ruby jewel tips
+ * - Subtle hairline vertical axis guide beam declaring the spin axis
+ * - Core front-to-back bevel transfer axle, structural bronze pillars & spinning side coupler gears
+ * - Hollow open floating golden Gyroscope Azimuth Ring ('turretDial') with orbital arrows & ROTATE AXIS banner
+ */
+export function createPortraitTurretRig(mats) {
+  const root = new THREE.Group();
+  root.name = 'portrait-turret-rig';
+  root.visible = true;
+
+  // Symmetric Zero-Gravity Vertical Axis Spindle (y = -5.00 .. +2.50) + Luminous Axis Guide Beam
+  const spindle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.115, 0.115, 7.50, 20),
+    mats.machinedSteel
+  );
+  spindle.position.set(0, -1.25, 0);
+  root.add(spindle);
+
+  const axisBeam = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.012, 0.012, 8.70, 8),
+    new THREE.MeshBasicMaterial({
+      color: GOLD_BRIGHT_HEX,
+      transparent: true,
+      opacity: 0.24,
+      depthWrite: false
+    })
+  );
+  axisBeam.position.set(0, -1.25, 0);
+  root.add(axisBeam);
+
+  for (const collarY of [+2.15, -4.43]) {
+    const collar = new THREE.Mesh(
+      new THREE.TorusGeometry(0.21, 0.042, 10, 28),
+      mats.polishedGold
+    );
+    collar.rotation.x = Math.PI / 2;
+    collar.position.set(0, collarY, 0);
+    root.add(collar);
+  }
+
+  // Top pointed bronze finial + ruby jewel cap
+  const finialTop = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.045, 0.17, 0.44, 16),
+    mats.darkBronze
+  );
+  finialTop.position.set(0, 2.50, 0);
+  root.add(finialTop);
+
+  const topRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.16, 0.032, 10, 24),
+    mats.polishedGold
+  );
+  topRing.rotation.x = Math.PI / 2;
+  topRing.position.set(0, 2.28, 0);
+  root.add(topRing);
+
+  const rubyCapTop = new THREE.Mesh(
+    new THREE.SphereGeometry(0.135, 16, 12),
+    mats.rubyJewel
+  );
+  rubyCapTop.position.set(0, 2.74, 0);
+  root.add(rubyCapTop);
+
+  // Symmetric inverted bottom pointed finial + ruby jewel tip (zero-gravity floating plumb)
+  const finialBottom = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.17, 0.045, 0.44, 16),
+    mats.darkBronze
+  );
+  finialBottom.position.set(0, -5.01, 0);
+  root.add(finialBottom);
+
+  const bottomRing = new THREE.Mesh(
+    new THREE.TorusGeometry(0.16, 0.032, 10, 24),
+    mats.polishedGold
+  );
+  bottomRing.rotation.x = Math.PI / 2;
+  bottomRing.position.set(0, -4.81, 0);
+  root.add(bottomRing);
+
+  const rubyCapBottom = new THREE.Mesh(
+    new THREE.SphereGeometry(0.125, 16, 12),
+    mats.rubyJewel
+  );
+  rubyCapBottom.position.set(0, -5.25, 0);
+  root.add(rubyCapBottom);
+
+  // Front-to-Back Interconnecting Core Transfer Axle & Opposing Bevels
+  const coreTransferRotor = new THREE.Group();
+  const coreAxle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.09, 0.09, 1.48, 16),
+    mats.machinedSteel
+  );
+  coreAxle.rotation.x = Math.PI / 2;
+  coreTransferRotor.add(coreAxle);
+
+  const coreDrum = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.24, 0.24, 0.34, 18),
+    mats.darkBronze
+  );
+  coreDrum.rotation.x = Math.PI / 2;
+  coreTransferRotor.add(coreDrum);
+
+  const bevelFront = createBevelGear({
+    teeth: 14,
+    outerR: 0.42,
+    innerR: 0.20,
+    height: 0.18,
+    toothHeight: 0.055,
+    isGold: true
+  }, mats);
+  bevelFront.position.z = 0.44;
+  coreTransferRotor.add(bevelFront);
+
+  const bevelBack = createBevelGear({
+    teeth: 14,
+    outerR: 0.42,
+    innerR: 0.20,
+    height: 0.18,
+    toothHeight: 0.055,
+    isGold: true
+  }, mats);
+  bevelBack.position.z = -0.44;
+  bevelBack.rotation.y = Math.PI;
+  coreTransferRotor.add(bevelBack);
+  root.add(coreTransferRotor);
+
+  // Three Structural Front-to-Back Pillars tying Date & Time frames
+  const pillarGeo = new THREE.CylinderGeometry(0.085, 0.085, 1.46, 12);
+  const pillarCollarGeo = new THREE.TorusGeometry(0.115, 0.025, 8, 20);
+  for (const [px, py] of [[-1.68, 1.08], [+1.68, 1.08], [0, -1.55]]) {
+    const pillar = new THREE.Mesh(pillarGeo, mats.darkBronze);
+    pillar.rotation.x = Math.PI / 2;
+    pillar.position.set(px, py, 0);
+    root.add(pillar);
+
+    for (const cz of [-0.52, +0.52]) {
+      const ring = new THREE.Mesh(pillarCollarGeo, mats.polishedGold);
+      ring.position.set(px, py, cz);
+      root.add(ring);
+    }
+  }
+
+  // Horizontal Bronze Side Arms + Spinning Side Coupling Gears
+  const makeSideCoupler = (sideSign) => {
+    const arm = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.075, 0.085, 0.68, 12),
+      mats.darkBronze
+    );
+    arm.rotation.z = Math.PI / 2;
+    arm.position.set(sideSign * 1.72, -0.18, 0);
+    root.add(arm);
+
+    const mount = new THREE.Group();
+    mount.position.set(sideSign * 2.06, -0.18, 0);
+    mount.rotation.y = Math.PI / 2;
+
+    const coupler = createSpurGear({
+      id: `turret-coupler-${sideSign > 0 ? 'r' : 'l'}`,
+      label: '',
+      teeth: 16,
+      moduleSize: 0.072,
+      thickness: 0.14,
+      slots: 12,
+      spokeCount: 4
+    }, mats);
+    for (const m of coupler.hitMeshes) m.userData = {};
+
+    const jewel = new THREE.Mesh(
+      new THREE.SphereGeometry(0.08, 12, 10),
+      mats.rubyJewel
+    );
+    jewel.position.z = sideSign * 0.11;
+    coupler.rotor.add(jewel);
+
+    mount.add(coupler.rotor);
+    root.add(mount);
+    return coupler.rotor;
+  };
+
+  const sideCouplerL = makeSideCoupler(-1);
+  const sideCouplerR = makeSideCoupler(+1);
+
+  // Hollow Open Floating Golden Gyroscope Azimuth Ring (y = -4.67, stars visible straight through)
+  const dialGroup = new THREE.Group();
+  dialGroup.position.set(0, -4.67, 0);
+  root.add(dialGroup);
+
+  const knurlMat = mats.polishedGold.clone();
+  const hitMeshes = [];
+  const tagDial = (mesh) => {
+    mesh.userData = { interactiveType: 'turretDial' };
+    hitMeshes.push(mesh);
+    return mesh;
+  };
+
+  // Central bearing collar on the vertical shaft
+  const bearingCollar = tagDial(new THREE.Mesh(
+    new THREE.CylinderGeometry(0.20, 0.20, 0.16, 24),
+    mats.darkBronze
+  ));
+  dialGroup.add(bearingCollar);
+
+  // Open outer brushed-gold torus + inner antique-gold wire torus
+  const outerRing = tagDial(new THREE.Mesh(
+    new THREE.TorusGeometry(1.56, 0.062, 14, 56),
+    knurlMat
+  ));
+  outerRing.rotation.x = Math.PI / 2;
+  dialGroup.add(outerRing);
+
+  const innerRing = tagDial(new THREE.Mesh(
+    new THREE.TorusGeometry(1.26, 0.022, 10, 48),
+    mats.antiqueGold
+  ));
+  innerRing.rotation.x = Math.PI / 2;
+  dialGroup.add(innerRing);
+
+  // 4 slender radial filigree spokes along ±X and ±Z (no solid base plate)
+  const spokeGeo = new THREE.CylinderGeometry(0.024, 0.024, 1.38, 8);
+  for (let i = 0; i < 4; i++) {
+    const a = (i * Math.PI) / 2;
+    const spoke = new THREE.Mesh(spokeGeo, mats.antiqueGold);
+    spoke.rotation.z = Math.PI / 2;
+    spoke.rotation.y = a;
+    spoke.position.set(Math.cos(a) * 0.87, 0, -Math.sin(a) * 0.87);
+    dialGroup.add(spoke);
+  }
+
+  // 24 small engraved golden tick lugs around the outer circumference
+  const tickGeo = new THREE.BoxGeometry(0.036, 0.13, 0.044);
+  for (let i = 0; i < 24; i++) {
+    const a = (i * 2 * Math.PI) / 24;
+    const tick = new THREE.Mesh(tickGeo, knurlMat);
+    tick.position.set(Math.sin(a) * 1.59, 0, Math.cos(a) * 1.59);
+    tick.rotation.y = a;
+    dialGroup.add(tick);
+  }
+
+  // Sculpted golden cardinal grip tabs with ruby index jewels at 0° (+Z) and 180° (-Z)
+  for (const dir of [+1, -1]) {
+    const tab = tagDial(new THREE.Mesh(
+      new THREE.BoxGeometry(0.24, 0.14, 0.18),
+      knurlMat
+    ));
+    tab.position.set(0, 0, dir * 1.56);
+    dialGroup.add(tab);
+
+    const idxRuby = tagDial(new THREE.Mesh(
+      new THREE.SphereGeometry(0.085, 12, 10),
+      mats.rubyJewel
+    ));
+    idxRuby.position.set(0, 0.09, dir * 1.56);
+    dialGroup.add(idxRuby);
+  }
+
+  const hitCyl = tagDial(new THREE.Mesh(
+    new THREE.CylinderGeometry(2.05, 2.05, 0.85, 24),
+    new THREE.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false })
+  ));
+  dialGroup.add(hitCyl);
+
+  // Glowing Curved Orbital Arrows + Floating Arc Banner ('◄ ROTATE AXIS ►')
+  const hintGroup = new THREE.Group();
+  hintGroup.rotation.x = -0.14;
+  dialGroup.add(hintGroup);
+
+  const arrowMat = new THREE.MeshBasicMaterial({
+    color: GOLD_BRIGHT_HEX,
+    transparent: true,
+    opacity: 0.90,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+
+  const makeHintArc = (sideSign, faceSign) => {
+    const arcPts = [];
+    for (let s = 0; s <= 14; s++) {
+      const a = sideSign * (0.24 + (s / 14) * 0.62);
+      arcPts.push(new THREE.Vector3(Math.sin(a) * 1.86, 0, Math.cos(a) * 1.86 * faceSign));
+    }
+    const arcGeo = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(arcPts), 16, 0.032, 8, false);
+    hintGroup.add(new THREE.Mesh(arcGeo, arrowMat));
+
+    const tipA = sideSign * (0.24 + 0.64);
+    const cone = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.22, 10), arrowMat);
+    cone.position.set(Math.sin(tipA) * 1.86, 0, Math.cos(tipA) * 1.86 * faceSign);
+    const tangent = new THREE.Vector3(
+      sideSign * Math.cos(tipA),
+      0,
+      -sideSign * Math.sin(tipA) * faceSign
+    ).normalize();
+    cone.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), tangent);
+    hintGroup.add(cone);
+  };
+
+  makeHintArc(-1, +1);
+  makeHintArc(+1, +1);
+  makeHintArc(-1, -1);
+  makeHintArc(+1, -1);
+
+  const bannerCanvas = document.createElement('canvas');
+  bannerCanvas.width = 512;
+  bannerCanvas.height = 96;
+  const bCtx = bannerCanvas.getContext('2d');
+  bCtx.clearRect(0, 0, 512, 96);
+  bCtx.font = '700 32px "JetBrains Mono", monospace';
+  bCtx.textAlign = 'center';
+  bCtx.textBaseline = 'middle';
+  bCtx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+  bCtx.shadowBlur = 10;
+  bCtx.fillStyle = '#f7e1a0';
+  bCtx.fillText('◄  ROTATE AXIS  ►', 256, 48);
+
+  const bannerTex = new THREE.CanvasTexture(bannerCanvas);
+  bannerTex.colorSpace = THREE.SRGBColorSpace;
+  bannerTex.anisotropy = 4;
+
+  const bannerMat = new THREE.MeshBasicMaterial({
+    map: bannerTex,
+    transparent: true,
+    opacity: 0.92,
+    depthWrite: false,
+    side: THREE.DoubleSide
+  });
+
+  const bannerMesh = new THREE.Mesh(
+    new THREE.CylinderGeometry(1.98, 1.98, 0.36, 40, 1, true, -0.58, 1.16),
+    bannerMat
+  );
+  bannerMesh.position.set(0, -0.22, 0);
+  hintGroup.add(bannerMesh);
+
+  return {
+    root,
+    dialGroup,
+    hintGroup,
+    hitMeshes,
+    setDialHovered(hovered) {
+      knurlMat.color.setHex(hovered ? GOLD_BRIGHT_HEX : GOLD_HEX);
+      knurlMat.roughness = hovered ? 0.14 : 0.24;
+    },
+    setDialDragging(active) {
+      knurlMat.emissive.setHex(active ? 0x5c3c08 : 0x000000);
+      knurlMat.emissiveIntensity = active ? 0.45 : 0;
+    },
+    setHintOpacity(fade) {
+      const f = Math.max(0, Math.min(1, fade));
+      arrowMat.opacity = 0.56 + f * 0.34;
+      bannerMat.opacity = 0.22 + f * 0.70;
+      hintGroup.visible = true;
+    },
+    spinCouplers(dGear) {
+      coreTransferRotor.rotation.z += dGear * 1.15;
+      sideCouplerL.rotation.z -= dGear * 1.35;
+      sideCouplerR.rotation.z += dGear * 1.35;
     }
   };
 }

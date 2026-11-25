@@ -18,6 +18,7 @@ export const EARTH_RADIUS = 2.35;
 export const EARTH_SPACE_POS = new THREE.Vector3(0, 4.15, -10.4);
 const SUN_SPACE_DIST = 8.2;
 const MOON_SPACE_DIST = 4.15;
+const POV_EYE_Y = 0.35;
 
 const GOLD_HEX = 0xe2bc6b;
 const GOLD_BRIGHT_HEX = 0xf7df9c;
@@ -58,7 +59,10 @@ export class SpaceCosmos {
 
     this.countryPinMap = new Map();
     this.earthHitMeshes = [];
+    this.skyBodyHitMeshes = [];
     this.asteroids = [];
+    this.currentPovHorizons = { sun: null, moon: null };
+    this.telescopeOptics = { active: false, solarFilterMix: 0 };
 
     this._buildSkyDome();
     this._buildStarfield();
@@ -84,6 +88,7 @@ export class SpaceCosmos {
       uPovMix: { value: 0 },
       uDayFactor: { value: 0.8 },
       uTwilightFactor: { value: 0.0 },
+      uSolarFilter: { value: 0.0 },
       uSunDir: { value: new THREE.Vector3(0, 0.5, 0.86) }
     };
 
@@ -104,6 +109,7 @@ export class SpaceCosmos {
         uniform float uPovMix;
         uniform float uDayFactor;
         uniform float uTwilightFactor;
+        uniform float uSolarFilter;
         uniform vec3 uSunDir;
 
         float hash21(vec2 p) {
@@ -171,6 +177,9 @@ export class SpaceCosmos {
           float belowMask = smoothstep(0.02, -0.06, dir.y);
           vec3 groundCol = mix(vec3(0.010, 0.014, 0.026), vec3(0.035, 0.056, 0.095), uDayFactor);
           povCol = mix(povCol, groundCol, belowMask);
+
+          // ND5 optical solar filter darkens daytime sky glare so the photosphere stands out crisply
+          povCol *= mix(1.0, 0.035, clamp(uSolarFilter, 0.0, 1.0));
 
           vec3 finalCol = mix(spaceCol, povCol, uPovMix);
           gl_FragColor = vec4(finalCol, 1.0);
@@ -786,18 +795,111 @@ export class SpaceCosmos {
 
   _buildMoon() {
     const moonTex = this._loadTex('assets/textures/moon.jpg', true);
-    const moonMat = new THREE.MeshStandardMaterial({
-      map: moonTex,
-      bumpMap: moonTex,
-      bumpScale: 0.035,
-      roughness: 0.94,
-      metalness: 0.02
+    moonTex.wrapS = THREE.RepeatWrapping;
+    moonTex.wrapT = THREE.ClampToEdgeWrapping;
+
+    this.moonUniforms = {
+      uMoonTex: { value: moonTex },
+      uSunDir: { value: new THREE.Vector3(0, 0.3, 0.95) },
+      uDaySkyFactor: { value: 0.0 },
+      uPovMix: { value: 0.0 },
+      uSolarFilter: { value: 0.0 }
+    };
+
+    const moonMat = new THREE.ShaderMaterial({
+      uniforms: this.moonUniforms,
+      vertexShader: `
+        varying vec2 vUv;
+        varying vec3 vWorldNormal;
+        varying vec3 vWorldTangent;
+        varying vec3 vWorldBitangent;
+        varying vec3 vWorldPos;
+
+        void main() {
+          vUv = uv;
+          vec4 wp = modelMatrix * vec4(position, 1.0);
+          vWorldPos = wp.xyz;
+
+          vec3 localN = normalize(normal);
+          vec3 localT = length(position.xz) > 0.0001
+            ? normalize(vec3(position.z, 0.0, -position.x))
+            : vec3(1.0, 0.0, 0.0);
+          vec3 localB = normalize(cross(localN, localT));
+
+          mat3 m3 = mat3(modelMatrix);
+          vWorldNormal = normalize(m3 * localN);
+          vWorldTangent = normalize(m3 * localT);
+          vWorldBitangent = normalize(m3 * localB);
+
+          gl_Position = projectionMatrix * viewMatrix * wp;
+        }
+      `,
+      fragmentShader: `
+        varying vec2 vUv;
+        varying vec3 vWorldNormal;
+        varying vec3 vWorldTangent;
+        varying vec3 vWorldBitangent;
+        varying vec3 vWorldPos;
+
+        uniform sampler2D uMoonTex;
+        uniform vec3 uSunDir;
+        uniform float uDaySkyFactor;
+        uniform float uPovMix;
+        uniform float uSolarFilter;
+
+        void main() {
+          vec3 nGeo = normalize(vWorldNormal);
+          vec3 tW = normalize(vWorldTangent);
+          vec3 bW = normalize(vWorldBitangent);
+
+          vec3 albedo = texture2D(uMoonTex, vUv).rgb;
+          float hC = dot(albedo, vec3(0.3333));
+          float hU = dot(texture2D(uMoonTex, vUv + vec2(0.001, 0.0)).rgb, vec3(0.3333));
+          float hV = dot(texture2D(uMoonTex, vec2(vUv.x, clamp(vUv.y + 0.002, 0.0, 1.0))).rgb, vec3(0.3333));
+          vec3 nPerturbed = normalize(nGeo - tW * (hU - hC) * 4.2 - bW * (hV - hC) * 4.2);
+
+          vec3 s = normalize(uSunDir);
+          vec3 v = normalize(cameraPosition - vWorldPos);
+
+          float ndlGeo = dot(nGeo, s);
+          float ndlTerrain = max(0.0, dot(nPerturbed, s));
+          float ndv = max(0.08, dot(nGeo, v));
+
+          // Lommel-Seeliger regolith opposition/limb flatness blended with crater relief
+          float lommel = ndlTerrain / (ndlTerrain + ndv + 0.14);
+          float litMask = smoothstep(-0.04, 0.06, ndlGeo);
+          float directLum = mix(ndlTerrain, lommel * 1.45, 0.48) * litMask;
+
+          vec3 sunTint = vec3(1.0, 0.985, 0.94);
+          vec3 earthshine = albedo * vec3(0.055, 0.072, 0.105);
+          vec3 col = earthshine + albedo * sunTint * directLum * 1.38;
+
+          // Foreground atmospheric blue airlight when viewed through a sunlit Earth sky
+          vec3 dayAirlight = vec3(0.10, 0.30, 0.64) * uDaySkyFactor * uPovMix * 0.26;
+          col += dayAirlight;
+
+          col *= mix(1.0, 0.02, clamp(uSolarFilter, 0.0, 1.0));
+
+          gl_FragColor = vec4(col, 1.0);
+          #include <tonemapping_fragment>
+          #include <colorspace_fragment>
+        }
+      `
     });
 
-    this.moonMesh = new THREE.Mesh(new THREE.SphereGeometry(0.58, 48, 36), moonMat);
+    this.moonMesh = new THREE.Mesh(new THREE.SphereGeometry(0.58, 64, 48), moonMat);
     this.moonMesh.castShadow = true;
     this.moonMesh.receiveShadow = true;
+    this.moonMesh.userData = { interactiveType: 'skyBody', body: 'moon' };
     this.root.add(this.moonMesh);
+
+    const moonHit = new THREE.Mesh(
+      new THREE.SphereGeometry(0.86, 16, 12),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    moonHit.userData = { interactiveType: 'skyBody', body: 'moon' };
+    this.moonMesh.add(moonHit);
+    this.skyBodyHitMeshes.push(moonHit);
   }
 
   _buildSun() {
@@ -805,7 +907,8 @@ export class SpaceCosmos {
     this.root.add(this.sunGroup);
 
     this.sunUniforms = {
-      uTime: { value: 0.0 }
+      uTime: { value: 0.0 },
+      uSolarFilter: { value: 0.0 }
     };
 
     const sunMat = new THREE.ShaderMaterial({
@@ -827,6 +930,7 @@ export class SpaceCosmos {
         varying vec3 vViewPos;
         varying vec3 vLocalPos;
         uniform float uTime;
+        uniform float uSolarFilter;
 
         float hash3(vec3 p) {
           p = fract(p * 0.3183099 + 0.1);
@@ -851,31 +955,51 @@ export class SpaceCosmos {
           vec3 n = normalize(vNormal);
           vec3 v = normalize(vViewPos);
           float mu = clamp(dot(n, v), 0.0, 1.0);
-          float limb = pow(mu, 0.55);
+          float limb = pow(mu, mix(0.55, 0.72, uSolarFilter));
 
-          vec3 gp = vLocalPos * 7.5 + vec3(uTime * 0.06, -uTime * 0.04, uTime * 0.03);
-          float gran = noise3(gp) * 0.65 + noise3(gp * 2.15) * 0.35;
+          vec3 gp = vLocalPos * 7.5 + vec3(uTime * 0.04, -uTime * 0.03, uTime * 0.02);
+          float granLow = noise3(gp);
+          float granMid = noise3(gp * 2.4 + 1.3);
+          float granFine = noise3(vLocalPos * 38.0 + vec3(uTime * 0.08, 0.0, -uTime * 0.06));
+          float gran = granLow * 0.46 + granMid * 0.34 + granFine * 0.20;
 
-          vec3 coreCol = vec3(1.0, 0.985, 0.89);
-          vec3 midCol  = vec3(1.0, 0.82, 0.38);
-          vec3 rimCol  = vec3(0.95, 0.44, 0.09);
+          // Subtle active sunspot groups near solar mid-latitudes
+          float latBand = exp(-pow((abs(vLocalPos.y) - 0.24) * 5.2, 2.0));
+          float spotField = noise3(vLocalPos * 9.5 + vec3(0.0, 1.7, 2.9));
+          float umbra = smoothstep(0.77, 0.85, spotField) * latBand;
+          float penumbra = smoothstep(0.70, 0.78, spotField) * latBand;
+
+          vec3 coreCol = mix(vec3(1.0, 0.985, 0.89), vec3(1.0, 0.89, 0.58), uSolarFilter);
+          vec3 midCol  = mix(vec3(1.0, 0.82, 0.38), vec3(0.96, 0.62, 0.16), uSolarFilter);
+          vec3 rimCol  = mix(vec3(0.95, 0.44, 0.09), vec3(0.68, 0.22, 0.04), uSolarFilter);
 
           vec3 col = mix(
             rimCol,
             mix(midCol, coreCol, smoothstep(0.35, 0.95, limb)),
             smoothstep(0.0, 0.68, limb)
           );
-          col *= 0.88 + 0.24 * gran;
+          col *= mix(0.88 + 0.24 * gran, 0.74 + 0.52 * gran, uSolarFilter);
+          col = mix(col, vec3(0.52, 0.24, 0.06), penumbra * (0.28 + 0.46 * uSolarFilter));
+          col = mix(col, vec3(0.14, 0.06, 0.02), umbra * (0.45 + 0.50 * uSolarFilter));
           gl_FragColor = vec4(col, 1.0);
         }
       `
     });
 
     this.sunSphere = new THREE.Mesh(
-      new THREE.SphereGeometry(0.86, 40, 32),
+      new THREE.SphereGeometry(0.86, 64, 48),
       sunMat
     );
+    this.sunSphere.userData = { interactiveType: 'skyBody', body: 'sun' };
     this.sunGroup.add(this.sunSphere);
+
+    const sunHit = new THREE.Mesh(
+      new THREE.SphereGeometry(1.28, 16, 12),
+      new THREE.MeshBasicMaterial({ visible: false })
+    );
+    sunHit.userData = { interactiveType: 'skyBody', body: 'sun' };
+    this.sunGroup.add(sunHit);
+    this.skyBodyHitMeshes.push(sunHit);
 
     const innerCoronaTex = this._createSoftDiscTexture(256, '#ffe5a3', 1.0);
     const innerCorona = new THREE.Sprite(
@@ -889,6 +1013,7 @@ export class SpaceCosmos {
       })
     );
     innerCorona.scale.set(2.9, 2.9, 1);
+    this.innerCorona = innerCorona;
     this.sunGroup.add(innerCorona);
 
     const outerCoronaTex = this._createSoftDiscTexture(256, '#ffab48', 0.85);
@@ -903,6 +1028,7 @@ export class SpaceCosmos {
       })
     );
     outerCorona.scale.set(5.2, 5.2, 1);
+    this.outerCorona = outerCorona;
     this.sunGroup.add(outerCorona);
 
     this.solarLight = new THREE.DirectionalLight(0xfff5e0, 2.5);
@@ -925,6 +1051,15 @@ export class SpaceCosmos {
     groundMesh.receiveShadow = true;
     this.horizonGroup.add(groundMesh);
     this.povGroundMat = groundMat;
+
+    // Opaque outer horizon skirt ensures set Sun/Moon (r >= 46) cannot be viewed through Earth
+    const horizonSkirt = new THREE.Mesh(
+      new THREE.CircleGeometry(44, 72),
+      groundMat
+    );
+    horizonSkirt.rotation.x = -Math.PI / 2;
+    horizonSkirt.position.y = -0.56;
+    this.horizonGroup.add(horizonSkirt);
 
     const horizonRim = new THREE.Mesh(
       new THREE.TorusGeometry(23.5, 0.048, 8, 96),
@@ -957,10 +1092,26 @@ export class SpaceCosmos {
 
   setPovMode(isPov, instant = false) {
     this.povTarget = isPov ? 1 : 0;
+    if (!isPov) {
+      this.telescopeOptics.active = false;
+      this.telescopeOptics.solarFilterMix = 0;
+      this.skyUniforms.uSolarFilter.value = 0;
+      this.sunUniforms.uSolarFilter.value = 0;
+      this.moonUniforms.uSolarFilter.value = 0;
+    }
     if (instant) {
       this.povMix = this.povTarget;
       this.skyUniforms.uPovMix.value = this.povMix;
     }
+  }
+
+  setTelescopeOptics({ active = false, solarFilterMix = 0 } = {}) {
+    this.telescopeOptics.active = Boolean(active);
+    this.telescopeOptics.solarFilterMix = Math.max(0, Math.min(1, solarFilterMix));
+  }
+
+  getPovBodyHorizon(body) {
+    return this.currentPovHorizons[body] || null;
   }
 
   update(celestial, dt, reducedMotion = false) {
@@ -991,6 +1142,8 @@ export class SpaceCosmos {
 
     const animSunHorizon = equatorialToHorizon(this.anim.sunHaDeg, this.anim.sunDecDeg, celestial.observerLatDeg);
     const animMoonHorizon = equatorialToHorizon(this.anim.moonHaDeg, this.anim.moonDecDeg, celestial.observerLatDeg);
+    this.currentPovHorizons.sun = animSunHorizon;
+    this.currentPovHorizons.moon = animMoonHorizon;
     const animSky = computeSkyFactors(animSunHorizon.altDeg, this.anim.sunHaDeg);
 
     const sunDirOrrery = new THREE.Vector3(...orreryVector(this.anim.sunHaDeg, this.anim.sunDecDeg)).normalize();
@@ -998,9 +1151,20 @@ export class SpaceCosmos {
     const sunDirPov = new THREE.Vector3(...animSunHorizon.vec).normalize();
     const moonDirPov = new THREE.Vector3(...animMoonHorizon.vec).normalize();
 
+    const sf = inPov ? this.telescopeOptics.solarFilterMix : 0;
     this.skyUniforms.uPovMix.value = this.povMix;
     this.skyUniforms.uDayFactor.value = animSky.dayFactor;
     this.skyUniforms.uTwilightFactor.value = animSky.twilightFactor;
+    this.skyUniforms.uSolarFilter.value = sf;
+    this.sunUniforms.uSolarFilter.value = sf;
+    this.moonUniforms.uPovMix.value = this.povMix;
+    this.moonUniforms.uDaySkyFactor.value = animSky.dayFactor;
+    this.moonUniforms.uSolarFilter.value = sf;
+
+    if (this.innerCorona && this.outerCorona) {
+      this.innerCorona.material.opacity = 0.82 * (1 - 0.90 * sf);
+      this.outerCorona.material.opacity = 0.42 * (1 - 0.95 * sf);
+    }
 
     if (!reducedMotion) {
       this.sunUniforms.uTime.value += dt;
@@ -1008,7 +1172,7 @@ export class SpaceCosmos {
 
     this.starPoints.rotation.y = -celestial.lstDeg * DEG_TO_RAD * 0.45;
     this.starUniforms.uOpacity.value = inPov
-      ? Math.max(0.06, 0.95 * (1 - animSky.dayFactor * 0.90))
+      ? Math.max(0.02, 0.95 * (1 - animSky.dayFactor * 0.90)) * (1 - 0.95 * sf)
       : 0.95;
 
     this.earthMesh.rotation.y = this.anim.earthRotY;
@@ -1031,20 +1195,25 @@ export class SpaceCosmos {
 
     this.earthGroup.visible = !inPov;
     this.horizonGroup.visible = inPov;
+    for (const batch of this.asteroids) {
+      batch.mesh.visible = !inPov;
+    }
 
     if (inPov) {
       this.skyUniforms.uSunDir.value.copy(sunDirPov);
-      this.sunGroup.position.copy(sunDirPov).multiplyScalar(42);
-      this.sunGroup.scale.setScalar(1.45);
-      this.moonMesh.position.copy(moonDirPov).multiplyScalar(32);
-      this.moonMesh.scale.setScalar(2.15);
-      this.moonMesh.lookAt(0, 0, 0);
+      // Anchor Sun & Moon to the telescope observer eye (0, POV_EYE_Y, 0) for zero parallax error at 24x zoom
+      this.sunGroup.position.set(0, POV_EYE_Y, 0).addScaledVector(sunDirPov, 56);
+      this.sunGroup.scale.setScalar(1.85);
+      this.moonMesh.position.set(0, POV_EYE_Y, 0).addScaledVector(moonDirPov, 46);
+      this.moonMesh.scale.setScalar(2.24);
+      this.moonMesh.lookAt(0, POV_EYE_Y, 0);
+      this.moonUniforms.uSunDir.value.copy(sunDirPov);
 
       this.solarLight.position.copy(sunDirPov).multiplyScalar(36);
       this.povGroundMat.color.setRGB(
-        0.025 + 0.05 * animSky.dayFactor,
-        0.038 + 0.08 * animSky.dayFactor,
-        0.065 + 0.11 * animSky.dayFactor
+        (0.025 + 0.05 * animSky.dayFactor) * (1 - 0.85 * sf),
+        (0.038 + 0.08 * animSky.dayFactor) * (1 - 0.85 * sf),
+        (0.065 + 0.11 * animSky.dayFactor) * (1 - 0.85 * sf)
       );
     } else {
       this.skyUniforms.uSunDir.value.copy(sunDirOrrery);
@@ -1057,6 +1226,7 @@ export class SpaceCosmos {
       this.moonMesh.position.copy(EARTH_SPACE_POS).addScaledVector(moonDirOrrery, MOON_SPACE_DIST);
       this.moonMesh.scale.setScalar(1.0);
       this.moonMesh.lookAt(EARTH_SPACE_POS);
+      this.moonUniforms.uSunDir.value.copy(sunDirOrrery);
 
       this.solarLight.position.copy(sunDirOrrery).multiplyScalar(24);
     }

@@ -13,9 +13,9 @@
       document.documentElement.setAttribute('data-embed', '1');
     }
   </script>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=11">
   <script defer src="js/temporal-model.js"></script>
-  <script type="module" src="js/app.js"></script>
+  <script type="module" src="js/app.js?v=11"></script>
 </head>
 <body data-sky="day">
   <main class="space-stage" id="main-content">
@@ -92,13 +92,20 @@
           >Earth POV</button>
         </nav>
 
-        <nav class="earth-step-nav" id="earth-step-nav" hidden aria-label="Earth POV view step">
+        <nav class="earth-step-nav" id="earth-step-nav" hidden aria-label="Earth POV focus station">
           <button
             type="button"
             id="btn-earth-room"
             class="earth-step-btn is-active"
             aria-pressed="true"
           >Room</button>
+          <span class="pov-divider" aria-hidden="true">/</span>
+          <button
+            type="button"
+            id="btn-earth-remote"
+            class="earth-step-btn"
+            aria-pressed="false"
+          >Remote</button>
           <span class="pov-divider" aria-hidden="true">/</span>
           <button
             type="button"
@@ -125,6 +132,63 @@
         Drag golden key to set gear · Click gear to engage · Click Earth for country · Drag space to orbit · Scroll or +/− to zoom
       </p>
 
+      <!-- Mobile Portrait Watchmaker Strip (ZERO boxes, shown <= 720px / portrait) -->
+      <div class="mobile-gear-bar" id="mobile-gear-bar" aria-label="Gear selection and step controls">
+        <nav class="mobile-cluster-switch" aria-label="Date or Time gears">
+          <button type="button" id="btn-cluster-date" class="mobile-cluster-btn is-active" aria-pressed="true">Date</button>
+          <span class="pov-divider" aria-hidden="true">/</span>
+          <button type="button" id="btn-cluster-time" class="mobile-cluster-btn" aria-pressed="false">Time</button>
+        </nav>
+
+        <div class="mobile-axis-control" role="group" aria-label="Rotate 3D structure around vertical axis">
+          <span class="axis-eyebrow" aria-hidden="true">AXIS</span>
+          <div class="axis-controls-row">
+            <button type="button" id="btn-axis-ccw" class="mobile-axis-btn" aria-label="Rotate 3D structure counter-clockwise">⟲</button>
+            <button type="button" id="btn-axis-scrub" class="mobile-axis-readout" aria-label="Drag horizontally to rotate 3D structure or tap to align face">0°</button>
+            <button type="button" id="btn-axis-cw" class="mobile-axis-btn" aria-label="Rotate 3D structure clockwise">⟳</button>
+          </div>
+        </div>
+
+        <div class="mobile-gear-row">
+          <div class="mobile-gear-list" id="mobile-gear-list" role="group" aria-label="Active cluster gears">
+            <div class="mobile-gear-group" id="mobile-gears-date" data-cluster-group="date">
+              <button type="button" id="btn-gear-year" class="mobile-gear-btn is-active" data-gear-id="year" aria-pressed="true">Year</button>
+              <span class="sep" aria-hidden="true">·</span>
+              <button type="button" id="btn-gear-month" class="mobile-gear-btn" data-gear-id="month" aria-pressed="false">Month</button>
+              <span class="sep" aria-hidden="true">·</span>
+              <button type="button" id="btn-gear-day" class="mobile-gear-btn" data-gear-id="day" aria-pressed="false">Day</button>
+            </div>
+            <div class="mobile-gear-group" id="mobile-gears-time" data-cluster-group="time" hidden>
+              <button type="button" id="btn-gear-hour" class="mobile-gear-btn" data-gear-id="hour" aria-pressed="false">Hour</button>
+              <span class="sep" aria-hidden="true">·</span>
+              <button type="button" id="btn-gear-minute" class="mobile-gear-btn" data-gear-id="minute" aria-pressed="false">Min</button>
+              <span class="sep" aria-hidden="true">·</span>
+              <button type="button" id="btn-gear-ampm" class="mobile-gear-btn" data-gear-id="ampm" aria-pressed="false">AM/PM</button>
+            </div>
+          </div>
+
+          <div class="mobile-step-group" role="group" aria-label="Step active gear">
+            <button type="button" id="btn-gear-prev" class="mobile-step-btn" aria-label="Previous year">‹</button>
+            <button type="button" id="btn-gear-next" class="mobile-step-btn" aria-label="Next year">›</button>
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        id="btn-earth-done"
+        class="inline-text-action earth-done-btn"
+        hidden
+        aria-label="Done, return focus to Observatory Room"
+      >✓ Done</button>
+
+      <nav id="telescope-targets" class="telescope-targets" hidden aria-label="Telescope GoTo sky targets">
+        <span class="scope-targets-label" aria-hidden="true">Track:</span>
+        <button type="button" id="btn-scope-sun" class="scope-target-btn" aria-pressed="false">☀ Sun</button>
+        <span class="sep" aria-hidden="true">·</span>
+        <button type="button" id="btn-scope-moon" class="scope-target-btn" aria-pressed="false">☾ Moon</button>
+      </nav>
+
       <!-- Clamped Plain-Text Earth Country Hover Tooltip -->
       <div id="earth-tooltip" class="earth-tooltip" hidden role="status"></div>
 
@@ -144,18 +208,13 @@
 
     <!-- Box-Free Current / Saved Date & Time View -->
     <section id="saved-view" class="saved-view" aria-label="Selected date and time">
-      <div class="landing-nebula" aria-hidden="true"></div>
       <div class="landing-stars" aria-hidden="true"></div>
-      <div class="landing-shooting-star" aria-hidden="true"></div>
-      <div class="landing-planet" aria-hidden="true"></div>
 
-      <nav class="landing-nav" aria-label="Site">
-        <a class="landing-nav-link" href="experience.html" target="_blank" rel="noopener">Experience <span aria-hidden="true">↗</span></a>
-      </nav>
-
-      <header class="landing-header">
+      <header class="landing-topbar">
         <h1 class="landing-title">Time Theory</h1>
-        <p class="landing-tagline">A mechanical golden-gear orrery for choosing date &amp; time</p>
+        <nav class="landing-nav" aria-label="Site">
+          <a class="landing-nav-link" href="experience.html" target="_blank" rel="noopener">Experience <span aria-hidden="true">↗</span></a>
+        </nav>
       </header>
 
       <div class="landing-center">
@@ -176,8 +235,9 @@
       </div>
 
       <footer class="landing-footer">
-        <p class="landing-howto">How to use <span class="landing-soon">Coming Soon</span></p>
-        <p class="landing-credit">Imagined by <strong>Shubhasai</strong> <span class="sep" aria-hidden="true">·</span> Built by <strong>Neon</strong></p>
+        <span>How to use (Coming Soon)</span>
+        <span class="sep" aria-hidden="true">·</span>
+        <span>Imagined by <strong>Shubhasai</strong> · Built by <strong>Neon</strong></span>
       </footer>
     </section>
 

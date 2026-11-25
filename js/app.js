@@ -3,7 +3,7 @@
  * Manages Temporal Plain date/time state, 2-POV toggle ('space' <-> 'earth'),
  * box-free plain text readout, 3D Earth country selection, and keyboard rotation.
  */
-import { ThreeGearMachine } from './three-machine.js';
+import { ThreeGearMachine } from './three-machine.js?v=11';
 import {
   COUNTRY_TIMEZONES,
   detectLocalTimezone,
@@ -63,6 +63,10 @@ class FullScreenOrreryApp {
 
     this._announceTimer = null;
     this._copyFeedbackTimer = null;
+    this._scopeNotice = '';
+    this._scopeNoticeTimer = null;
+    this.state.telescopeTarget = null;
+    this._lastClusterGear = { date: 'year', time: 'hour' };
 
     this.dom = {
       pickerView: document.getElementById('picker-view'),
@@ -75,6 +79,9 @@ class FullScreenOrreryApp {
       canvas: document.getElementById('gear-3d-canvas'),
       telescopeOverlay: document.getElementById('telescope-overlay'),
       telescopeHudInfo: document.getElementById('telescope-hud-info'),
+      telescopeTargets: document.getElementById('telescope-targets'),
+      btnScopeSun: document.getElementById('btn-scope-sun'),
+      btnScopeMoon: document.getElementById('btn-scope-moon'),
       readoutPrimary: document.getElementById('readout-primary'),
       readoutSky: document.getElementById('readout-sky'),
       btnCopyIso: document.getElementById('btn-copy-iso'),
@@ -86,12 +93,24 @@ class FullScreenOrreryApp {
       btnPovEarth: document.getElementById('btn-pov-earth'),
       earthStepNav: document.getElementById('earth-step-nav'),
       btnEarthRoom: document.getElementById('btn-earth-room'),
+      btnEarthRemote: document.getElementById('btn-earth-remote'),
       btnEarthTelescope: document.getElementById('btn-earth-telescope'),
+      btnEarthDone: document.getElementById('btn-earth-done'),
       btnZoomOut: document.getElementById('btn-zoom-out'),
       btnZoomReset: document.getElementById('btn-zoom-reset'),
       btnZoomIn: document.getElementById('btn-zoom-in'),
       btnSave: document.getElementById('btn-save'),
       bottomHint: document.getElementById('bottom-hint'),
+      btnClusterDate: document.getElementById('btn-cluster-date'),
+      btnClusterTime: document.getElementById('btn-cluster-time'),
+      btnAxisCcw: document.getElementById('btn-axis-ccw'),
+      btnAxisScrub: document.getElementById('btn-axis-scrub'),
+      btnAxisCw: document.getElementById('btn-axis-cw'),
+      mobileGearsDate: document.getElementById('mobile-gears-date'),
+      mobileGearsTime: document.getElementById('mobile-gears-time'),
+      btnGearPrev: document.getElementById('btn-gear-prev'),
+      btnGearNext: document.getElementById('btn-gear-next'),
+      mobileGearBtns: Array.from(document.querySelectorAll('.mobile-gear-btn[data-gear-id]')),
       earthTooltip: document.getElementById('earth-tooltip'),
       keySpinbutton: document.getElementById('key-spinbutton'),
       liveAnnouncer: document.getElementById('live-announcer')
@@ -110,13 +129,38 @@ class FullScreenOrreryApp {
       onRequestSpacePov: () => this.setPov('space'),
       onTelescopeTelemetry: (t) => {
         if (this.dom.telescopeHudInfo) {
+          if (this._scopeNotice) {
+            this.dom.telescopeHudInfo.textContent = this._scopeNotice;
+            return;
+          }
+          const altSign = t.elevDeg >= 0 ? '+' : '';
+          const fovStr = t.fovDeg ? ` · FOV ${t.fovDeg.toFixed(1)}°` : '';
+          const modeTag = t.solarFilterActive
+            ? ' · ND5 FILTER'
+            : t.targetBody
+              ? ` · TRACK ${t.targetBody.toUpperCase()}`
+              : '';
           this.dom.telescopeHudInfo.textContent =
-            `AZ ${Math.round(t.azDeg)}° · ALT ${t.elevDeg >= 0 ? '+' : ''}${Math.round(t.elevDeg)}° · ${t.zoomLabel}`;
+            `AZ ${Math.round(t.azDeg)}° · ALT ${altSign}${Math.round(t.elevDeg)}° · ${t.zoomLabel}${fovStr}${modeTag}`;
         }
+      },
+      onTelescopeTargetChange: (body) => {
+        this.state.telescopeTarget = body;
+        this._syncTelescopeTargetsUi();
       },
       onZoomChange: (label) => {
         if (this.dom.btnZoomReset) {
           this.dom.btnZoomReset.textContent = label;
+        }
+      },
+      onTurretFaceChange: (cluster) => {
+        let target = this._lastClusterGear[cluster];
+        if (this.state.is24h && target === 'ampm') target = 'hour';
+        this.engageGear(target, { announce: false, rotateToFace: false });
+      },
+      onTurretAngleChange: (deg) => {
+        if (this.dom.btnAxisScrub) {
+          this.dom.btnAxisScrub.textContent = `${deg}°`;
         }
       }
     });
@@ -330,7 +374,7 @@ class FullScreenOrreryApp {
     }
   }
 
-  engageGear(id, { announce = true } = {}) {
+  engageGear(id, { announce = true, rotateToFace = true } = {}) {
     const gs = this.machine.gearStates[id];
     if (!gs) return;
     if (gs.isLocked) {
@@ -339,14 +383,54 @@ class FullScreenOrreryApp {
     }
 
     this.state.engagedGearId = id;
-    this.machine.setEngagedGear(id);
+    this.machine.setEngagedGear(id, { rotateToFace });
 
     this.dom.activeGearText.textContent = `Driving: ${GEAR_LABELS[id]}`;
+    this._syncMobileGearBar();
     this._syncKeySpinbuttonAria();
     this._syncRemoteDisplay();
 
     if (announce) {
       this._announce(`Coupled to ${GEAR_LABELS[id]} gear.`);
+    }
+  }
+
+  _syncMobileGearBar() {
+    const engagedId = this.state.engagedGearId;
+    const isTime = ['hour', 'minute', 'ampm'].includes(engagedId);
+    this._lastClusterGear[isTime ? 'time' : 'date'] = engagedId;
+
+    if (this.dom.btnClusterDate && this.dom.btnClusterTime) {
+      this.dom.btnClusterDate.classList.toggle('is-active', !isTime);
+      this.dom.btnClusterDate.setAttribute('aria-pressed', String(!isTime));
+      this.dom.btnClusterTime.classList.toggle('is-active', isTime);
+      this.dom.btnClusterTime.setAttribute('aria-pressed', String(isTime));
+    }
+
+    if (this.dom.mobileGearsDate && this.dom.mobileGearsTime) {
+      this.dom.mobileGearsDate.hidden = isTime;
+      this.dom.mobileGearsTime.hidden = !isTime;
+    }
+
+    if (this.dom.mobileGearBtns) {
+      for (const btn of this.dom.mobileGearBtns) {
+        const gid = btn.dataset.gearId;
+        const active = gid === engagedId;
+        btn.classList.toggle('is-active', active);
+        btn.setAttribute('aria-pressed', String(active));
+        if (gid === 'ampm') {
+          btn.disabled = this.state.is24h;
+          btn.setAttribute('aria-disabled', String(this.state.is24h));
+        }
+      }
+    }
+
+    const label = (GEAR_LABELS[engagedId] || engagedId).toLowerCase();
+    if (this.dom.btnGearPrev) {
+      this.dom.btnGearPrev.setAttribute('aria-label', `Previous ${label}`);
+    }
+    if (this.dom.btnGearNext) {
+      this.dom.btnGearNext.setAttribute('aria-label', `Next ${label}`);
     }
   }
 
@@ -425,13 +509,16 @@ class FullScreenOrreryApp {
   _updateBottomHint() {
     if (this.state.povMode === 'space') {
       this.dom.bottomHint.textContent =
-        'Drag golden key to set gear · Click gear to engage · Click Earth for country · Drag space to orbit · Scroll or +/− to zoom';
+        'Drag gear or key to set · Drag ring to rotate axis · Click Earth for country';
     } else if (this.state.earthStep === 'telescope') {
       this.dom.bottomHint.textContent =
-        `Telescope eyepiece over ${this.state.countryName} · Drag sky 360° · Scroll or +/− to magnify · Esc to return to Room`;
+        `Telescope eyepiece over ${this.state.countryName} · Drag sky 360° · Press Done or Esc to return to Room`;
+    } else if (this.state.earthStep === 'remote') {
+      this.dom.bottomHint.textContent =
+        `Desk Remote (${this.state.countryName}) · Twist jog wheel or press channel · Press DONE on remote or Esc to return to Room`;
     } else {
       this.dom.bottomHint.textContent =
-        `Observatory Room (${this.state.countryName}) · Twist desk wheel to set gears & window sky · Click Telescope for Earth sky · Click Monitor for Space`;
+        `Observatory Room (${this.state.countryName}) · Click Remote or Telescope to focus · Click Monitor for Space`;
     }
   }
 
@@ -440,22 +527,84 @@ class FullScreenOrreryApp {
       this.state.earthStep = step;
     }
     const inEarth = this.state.povMode === 'earth';
+    const isRoom = inEarth && this.state.earthStep === 'room';
+    const isRemote = inEarth && this.state.earthStep === 'remote';
     const isTelescope = inEarth && this.state.earthStep === 'telescope';
 
     if (this.dom.earthStepNav) {
       this.dom.earthStepNav.hidden = !inEarth;
     }
-    if (this.dom.btnEarthRoom && this.dom.btnEarthTelescope) {
-      this.dom.btnEarthRoom.classList.toggle('is-active', !isTelescope);
-      this.dom.btnEarthRoom.setAttribute('aria-pressed', String(!isTelescope));
+    if (this.dom.btnEarthRoom) {
+      this.dom.btnEarthRoom.classList.toggle('is-active', isRoom);
+      this.dom.btnEarthRoom.setAttribute('aria-pressed', String(isRoom));
+    }
+    if (this.dom.btnEarthRemote) {
+      this.dom.btnEarthRemote.classList.toggle('is-active', isRemote);
+      this.dom.btnEarthRemote.setAttribute('aria-pressed', String(isRemote));
+    }
+    if (this.dom.btnEarthTelescope) {
       this.dom.btnEarthTelescope.classList.toggle('is-active', isTelescope);
       this.dom.btnEarthTelescope.setAttribute('aria-pressed', String(isTelescope));
+    }
+    if (this.dom.btnEarthDone) {
+      this.dom.btnEarthDone.hidden = !(inEarth && !isRoom);
     }
     if (this.dom.telescopeOverlay) {
       this.dom.telescopeOverlay.hidden = !isTelescope;
     }
+    if (this.dom.telescopeTargets) {
+      this.dom.telescopeTargets.hidden = !isTelescope;
+    }
+    this._syncTelescopeTargetsUi();
     document.body.dataset.pov = this.state.povMode;
+    document.body.dataset.earthStep = this.state.earthStep;
     this._updateBottomHint();
+  }
+
+  _syncTelescopeTargetsUi() {
+    const c = this.currentCelestial;
+    const target = this.state.telescopeTarget;
+
+    if (this.dom.btnScopeSun) {
+      const sunAlt = c ? Math.round(c.sunHorizon.altDeg) : 0;
+      const sunAbove = !c || c.sunHorizon.altDeg >= -1.2;
+      this.dom.btnScopeSun.textContent = sunAbove
+        ? `☀ Sun ${sunAlt >= 0 ? '+' : ''}${sunAlt}°`
+        : '☀ Sun (Set)';
+      this.dom.btnScopeSun.classList.toggle('is-active', target === 'sun');
+      this.dom.btnScopeSun.classList.toggle('is-below', !sunAbove);
+      this.dom.btnScopeSun.setAttribute('aria-pressed', String(target === 'sun'));
+    }
+
+    if (this.dom.btnScopeMoon) {
+      const moonAlt = c ? Math.round(c.moonHorizon.altDeg) : 0;
+      const moonAbove = !c || c.moonHorizon.altDeg >= -1.2;
+      this.dom.btnScopeMoon.textContent = moonAbove
+        ? `☾ Moon ${moonAlt >= 0 ? '+' : ''}${moonAlt}°`
+        : '☾ Moon (Set)';
+      this.dom.btnScopeMoon.classList.toggle('is-active', target === 'moon');
+      this.dom.btnScopeMoon.classList.toggle('is-below', !moonAbove);
+      this.dom.btnScopeMoon.setAttribute('aria-pressed', String(target === 'moon'));
+    }
+  }
+
+  _focusTelescopeTarget(body) {
+    const res = this.machine.focusTelescopeBody(body, { zoomToAcquire: true });
+    const label = body === 'sun' ? 'Sun' : 'Moon';
+    if (!res.visible) {
+      const altRounded = Math.round(res.altDeg);
+      const hint = body === 'sun' ? 'Set daytime to view' : 'Change time/date to view';
+      this._scopeNotice = `${label} below horizon (${altRounded}°) · ${hint}`;
+      if (this._scopeNoticeTimer) clearTimeout(this._scopeNoticeTimer);
+      this._scopeNoticeTimer = setTimeout(() => {
+        this._scopeNotice = '';
+      }, 3600);
+      this._announce(`${label} is currently below the horizon at ${altRounded} degrees. ${hint}.`);
+    } else {
+      this._scopeNotice = '';
+      this._announce(`Locked Telescope onto ${label} at azimuth ${Math.round(res.azDeg)} degrees, altitude ${Math.round(res.altDeg)} degrees.`);
+    }
+    this._syncTelescopeTargetsUi();
   }
 
   setPov(povMode) {
@@ -596,6 +745,8 @@ class FullScreenOrreryApp {
 
     if (is24 && this.state.engagedGearId === 'ampm') {
       this.engageGear('hour', { announce: false });
+    } else {
+      this._syncMobileGearBar();
     }
 
     this._syncUI({ announce: false });
@@ -727,6 +878,7 @@ class FullScreenOrreryApp {
       `${this.state.countryName} (${offsetStr} · ${meridianStr}) · ${icon} ${weather.label} ${sunSign} · ${c.moonPhaseName}`;
 
     this._updateBottomHint();
+    this._syncTelescopeTargetsUi();
     document.body.dataset.pov = this.state.povMode;
 
     this._syncKeySpinbuttonAria();
@@ -786,26 +938,131 @@ class FullScreenOrreryApp {
     if (this.dom.btnEarthRoom) {
       this.dom.btnEarthRoom.addEventListener('click', () => this.machine.setEarthStep('room'));
     }
+    if (this.dom.btnEarthRemote) {
+      this.dom.btnEarthRemote.addEventListener('click', () => this.machine.setEarthStep('remote'));
+    }
     if (this.dom.btnEarthTelescope) {
       this.dom.btnEarthTelescope.addEventListener('click', () => this.machine.setEarthStep('telescope'));
+    }
+    if (this.dom.btnEarthDone) {
+      this.dom.btnEarthDone.addEventListener('click', () => this.machine.setEarthStep('room'));
+    }
+    if (this.dom.btnScopeSun) {
+      this.dom.btnScopeSun.addEventListener('click', () => this._focusTelescopeTarget('sun'));
+    }
+    if (this.dom.btnScopeMoon) {
+      this.dom.btnScopeMoon.addEventListener('click', () => this._focusTelescopeTarget('moon'));
     }
     this.dom.btnFormatToggle.addEventListener('click', () => this.toggleTimeFormat());
     this.dom.btnNow.addEventListener('click', () => this.syncToNow());
     this.dom.btnCopyIso.addEventListener('click', () => this.copyIso(this.dom.btnCopyIso));
     this.dom.savedCopyIso.addEventListener('click', () => this.copyIso(this.dom.savedCopyIso));
 
-    this.dom.btnZoomIn.addEventListener('click', () => this.machine.zoomIn());
-    this.dom.btnZoomOut.addEventListener('click', () => this.machine.zoomOut());
+    this.dom.btnZoomIn.addEventListener('click', () => {
+      const factor = this.state.povMode === 'earth' && this.state.earthStep === 'telescope' ? 1.45 : 1.25;
+      this.machine.zoomIn(factor);
+    });
+    this.dom.btnZoomOut.addEventListener('click', () => {
+      const factor = this.state.povMode === 'earth' && this.state.earthStep === 'telescope' ? 1.45 : 1.25;
+      this.machine.zoomOut(factor);
+    });
     this.dom.btnZoomReset.addEventListener('click', () => this.machine.resetZoom());
     this.dom.btnSave.addEventListener('click', () => this.saveSelection());
     this.dom.btnEdit.addEventListener('click', () => this.editSelection());
+
+    if (this.dom.btnClusterDate) {
+      this.dom.btnClusterDate.addEventListener('click', () => {
+        this.engageGear(this._lastClusterGear.date);
+      });
+    }
+    if (this.dom.btnClusterTime) {
+      this.dom.btnClusterTime.addEventListener('click', () => {
+        let target = this._lastClusterGear.time;
+        if (this.state.is24h && target === 'ampm') target = 'hour';
+        this.engageGear(target);
+      });
+    }
+    for (const btn of this.dom.mobileGearBtns) {
+      btn.addEventListener('click', () => {
+        this.engageGear(btn.dataset.gearId);
+      });
+    }
+    if (this.dom.btnGearPrev) {
+      this.dom.btnGearPrev.addEventListener('click', () => {
+        this.machine.crankKeyStep(-1);
+        this._handleKeyStep(-1);
+      });
+    }
+    if (this.dom.btnGearNext) {
+      this.dom.btnGearNext.addEventListener('click', () => {
+        this.machine.crankKeyStep(1);
+        this._handleKeyStep(1);
+      });
+    }
+    if (this.dom.btnAxisCcw) {
+      this.dom.btnAxisCcw.addEventListener('click', () => {
+        this.machine.rotateTurretBy(-Math.PI / 3);
+      });
+    }
+    if (this.dom.btnAxisCw) {
+      this.dom.btnAxisCw.addEventListener('click', () => {
+        this.machine.rotateTurretBy(Math.PI / 3);
+      });
+    }
+    if (this.dom.btnAxisScrub) {
+      const scrubEl = this.dom.btnAxisScrub;
+      let scrubPid = null;
+      let scrubStartX = 0;
+      let scrubLastX = 0;
+      let scrubMoved = false;
+
+      scrubEl.addEventListener('pointerdown', (e) => {
+        scrubPid = e.pointerId;
+        scrubStartX = e.clientX;
+        scrubLastX = e.clientX;
+        scrubMoved = false;
+        if (scrubEl.setPointerCapture) {
+          try {
+            scrubEl.setPointerCapture(e.pointerId);
+          } catch (_) {}
+        }
+      });
+
+      scrubEl.addEventListener('pointermove', (e) => {
+        if (scrubPid !== e.pointerId) return;
+        const dx = e.clientX - scrubLastX;
+        scrubLastX = e.clientX;
+        if (!scrubMoved && Math.abs(e.clientX - scrubStartX) > 4) {
+          scrubMoved = true;
+        }
+        if (scrubMoved && dx !== 0) {
+          this.machine.scrubTurret(dx * 0.016);
+        }
+      });
+
+      const endScrub = (e) => {
+        if (scrubPid !== e.pointerId) return;
+        scrubPid = null;
+        if (scrubEl.hasPointerCapture && scrubEl.hasPointerCapture(e.pointerId)) {
+          try {
+            scrubEl.releasePointerCapture(e.pointerId);
+          } catch (_) {}
+        }
+        if (!scrubMoved) {
+          this.machine.snapTurretToNearestFace();
+        }
+      };
+
+      scrubEl.addEventListener('pointerup', endScrub);
+      scrubEl.addEventListener('pointercancel', endScrub);
+    }
 
     const handleSpinKey = (e) => {
       if (this.state.isSaved) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.target && e.target.tagName === 'SELECT') return;
 
-      if (e.key === 'Escape' && this.state.povMode === 'earth' && this.state.earthStep === 'telescope') {
+      if (e.key === 'Escape' && this.state.povMode === 'earth' && this.state.earthStep !== 'room') {
         e.preventDefault();
         this.machine.setEarthStep('room');
         return;

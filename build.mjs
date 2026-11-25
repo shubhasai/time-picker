@@ -20,6 +20,16 @@ const js = await build({
     resolveDir: root,
     sourcefile: 'entry.js'
   },
+  plugins: [
+    {
+      name: 'strip-query',
+      setup(b) {
+        b.onResolve({ filter: /^\..*\?/ }, (args) => ({
+          path: path.resolve(args.resolveDir, args.path.split('?')[0])
+        }));
+      }
+    }
+  ],
   bundle: true,
   minify: true,
   format: 'esm',
@@ -70,14 +80,15 @@ async function buildHtml(file, rewrite = (html) => html) {
 }
 
 function mustReplace(html, from, to) {
-  if (!html.includes(from)) throw new Error(`build: expected to find ${from}`);
+  const matched = typeof from === 'string' ? html.includes(from) : from.test(html);
+  if (!matched) throw new Error(`build: expected to find ${from}`);
   return html.replace(from, to);
 }
 
 await buildHtml('index.html', (html) => {
-  html = mustReplace(html, '<link rel="stylesheet" href="styles.css">', `<link rel="stylesheet" href="${cssName}">`);
+  html = mustReplace(html, /<link rel="stylesheet" href="styles\.css(?:\?[^"]*)?">/, `<link rel="stylesheet" href="${cssName}">`);
   html = mustReplace(html, '<script defer src="js/temporal-model.js"></script>', '');
-  html = mustReplace(html, '<script type="module" src="js/app.js"></script>', `<script type="module" src="${jsName}"></script>`);
+  html = mustReplace(html, /<script type="module" src="js\/app\.js(?:\?[^"]*)?"><\/script>/, `<script type="module" src="${jsName}"></script>`);
   return html;
 });
 await buildHtml('experience.html');

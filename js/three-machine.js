@@ -15,11 +15,12 @@ import {
   createMaterialLibrary,
   createSpurGear,
   createBevelGear,
-  createWindingKeyRig
-} from './three-gear-factory.js';
-import { SpaceCosmos, EARTH_SPACE_POS } from './space-cosmos.js';
-import { ObservatoryRoom } from './observatory-room.js';
-import { COUNTRY_TIMEZONES, resolveLocationFromLatLon } from './astronomy.js';
+  createWindingKeyRig,
+  createPortraitTurretRig
+} from './three-gear-factory.js?v=10';
+import { SpaceCosmos, EARTH_SPACE_POS } from './space-cosmos.js?v=11';
+import { ObservatoryRoom } from './observatory-room.js?v=10';
+import { COUNTRY_TIMEZONES, resolveLocationFromLatLon, smoothstep } from './astronomy.js';
 
 const DEG_TO_RAD = Math.PI / 180;
 const KEY_DETENT_ANGLE = Math.PI / 4; // 45 deg per mechanical detent
@@ -45,28 +46,45 @@ const GEAR_LAYOUT = {
 const SPACE_CAM_HOME = {
   theta: 0.00,
   phi: 1.44,
-  radius: 15.8,
-  target: new THREE.Vector3(0.0, 0.55, -0.80)
+  radius: 16.2,
+  target: new THREE.Vector3(0.0, 0.20, -0.80)
 };
-// Portrait (phone) layout: the two clusters stack vertically under the Earth
+// Unified dual-face connected horological gyroscope (Desktop, Mobile, & Room monitor)
 const PORTRAIT_ASPECT = 0.8;
-const CLUSTER_POS_PORTRAIT = {
-  date: new THREE.Vector3(0.0, -1.2, 0.15),
-  time: new THREE.Vector3(0.0, -6.75, 0.15)
+const DESKTOP_ROOT_POS = new THREE.Vector3(0.0, -1.10, 0.15);
+const PORTRAIT_ROOT_POS = new THREE.Vector3(0.0, -1.40, 0.15);
+const CLUSTER_POS_CONNECTED = {
+  date: new THREE.Vector3(0.0, 0.0, +0.72),
+  time: new THREE.Vector3(0.0, 0.0, -0.72)
 };
-const CLUSTER_ROT_Y_PORTRAIT = {
-  date: +5 * DEG_TO_RAD,
-  time: -5 * DEG_TO_RAD
+const CLUSTER_ROT_Y_CONNECTED = {
+  date: 0,
+  time: Math.PI
 };
-const SPACE_CAM_TARGET_PORTRAIT = new THREE.Vector3(0.0, -1.3, -0.80);
+const SPACE_CAM_TARGET_PORTRAIT = new THREE.Vector3(0.0, 0.35, -0.80);
 const SPACE_RADIUS_MIN = 3.6;
 const SPACE_RADIUS_MAX = 24.0;
 const ROOM_FOV_HOME = 42;
 const ROOM_FOV_MIN = 22;
 const ROOM_FOV_MAX = 56;
 const TELESCOPE_FOV_HOME = 48;
-const TELESCOPE_FOV_MIN = 12;
-const TELESCOPE_FOV_MAX = 60;
+const TELESCOPE_MAG_MIN = 0.8;
+const TELESCOPE_MAG_MAX = 24.0;
+const TELESCOPE_HALF_TAN = Math.tan((TELESCOPE_FOV_HOME * DEG_TO_RAD) / 2);
+const HORIZON_VISIBLE_ALT_DEG = -1.2;
+
+function fovToTelescopeMag(fovDeg) {
+  const halfTan = Math.tan(Math.max(0.4, fovDeg) * DEG_TO_RAD * 0.5);
+  return TELESCOPE_HALF_TAN / halfTan;
+}
+
+function telescopeMagToFov(mag) {
+  const m = THREE.MathUtils.clamp(mag, TELESCOPE_MAG_MIN, TELESCOPE_MAG_MAX);
+  return (2 * Math.atan(TELESCOPE_HALF_TAN / m)) / DEG_TO_RAD;
+}
+
+const TELESCOPE_FOV_MIN = telescopeMagToFov(TELESCOPE_MAG_MAX);
+const TELESCOPE_FOV_MAX = telescopeMagToFov(TELESCOPE_MAG_MIN);
 
 export class ThreeGearMachine {
   constructor(canvas, callbacks = {}) {
@@ -82,6 +100,9 @@ export class ThreeGearMachine {
     this.onEarthStepChange = callbacks.onEarthStepChange || (() => {});
     this.onRequestSpacePov = callbacks.onRequestSpacePov || (() => {});
     this.onTelescopeTelemetry = callbacks.onTelescopeTelemetry || (() => {});
+    this.onTelescopeTargetChange = callbacks.onTelescopeTargetChange || (() => {});
+    this.onTurretFaceChange = callbacks.onTurretFaceChange || (() => {});
+    this.onTurretAngleChange = callbacks.onTurretAngleChange || (() => {});
 
     this._motionMedia = window.matchMedia
       ? window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -103,7 +124,16 @@ export class ThreeGearMachine {
       keyExtractVel: 0,
       isDraggingKey: false,
       hasDraggedKey: false,
-      hintFade: 1.0
+      hintFade: 1.0,
+      turretAngle: 0,
+      turretTargetAngle: 0,
+      turretVel: 0,
+      isDraggingTurret: false,
+      turretCoasting: false,
+      hasRotatedTurret: false,
+      turretHintFade: 1.0,
+      lastFacingCluster: 'date',
+      lastReportedTurretDeg: 0
     };
 
     this.cam = {
@@ -123,7 +153,8 @@ export class ThreeGearMachine {
       targetYaw: 0,
       targetPitch: 0,
       fov: ROOM_FOV_HOME,
-      targetFov: ROOM_FOV_HOME
+      targetFov: ROOM_FOV_HOME,
+      focusMix: 0
     };
 
     this.pov = {
@@ -132,7 +163,9 @@ export class ThreeGearMachine {
       targetAzDeg: 180,
       targetElevDeg: 22,
       fov: TELESCOPE_FOV_HOME,
-      targetFov: TELESCOPE_FOV_HOME
+      targetFov: TELESCOPE_FOV_HOME,
+      targetBody: null,
+      solarFilterMix: 0
     };
 
     this.gearStates = {};
@@ -201,17 +234,30 @@ export class ThreeGearMachine {
     this.coolRimLight.position.set(-6.0, 2.8, 4.5);
     this.scene.add(this.coolRimLight);
 
+    this.gearFocusLight = new THREE.PointLight(0xffe7b3, 3.6, 11, 1.45);
+    this.gearFocusLight.position.set(0, -1.0, 4.0);
+    this.scene.add(this.gearFocusLight);
+
     this.metalTex = createBrushedMetalTexture();
     this.mats = createMaterialLibrary(this.metalTex);
   }
 
   _buildClusters() {
-    // Two completely separate floating gear assemblies (zero bridge between them)
+    // Unified connected dual-face horological gyroscope
     this.clustersRoot = new THREE.Group();
     this.scene.add(this.clustersRoot);
 
     this.clusterObjects.date = this._buildSingleCluster('date');
     this.clusterObjects.time = this._buildSingleCluster('time');
+
+    // Connected Turret Spindle, Core Coupling Gears & Floating Gyroscope Ring
+    this.portraitTurret = createPortraitTurretRig(this.mats);
+    this.portraitTurret.root.visible = true;
+    this.clustersRoot.add(this.portraitTurret.root);
+
+    this.clustersRoot.position.copy(DESKTOP_ROOT_POS);
+    this.clustersRoot.scale.setScalar(0.69);
+    this.clustersRoot.updateMatrixWorld(true);
 
     // Outer Space Winding Key
     this.keyRig = createWindingKeyRig(this.mats);
@@ -230,8 +276,8 @@ export class ThreeGearMachine {
 
   _buildSingleCluster(clusterName) {
     const clusterGroup = new THREE.Group();
-    clusterGroup.position.copy(CLUSTER_POS[clusterName]);
-    clusterGroup.rotation.y = CLUSTER_ROT_Y[clusterName];
+    clusterGroup.position.copy(CLUSTER_POS_CONNECTED[clusterName]);
+    clusterGroup.rotation.y = CLUSTER_ROT_Y_CONNECTED[clusterName];
     this.clustersRoot.add(clusterGroup);
 
     const framePlate = new THREE.Mesh(
@@ -340,6 +386,7 @@ export class ThreeGearMachine {
     clusterGroup.add(escRig);
 
     const shafts = {};
+    const clusterGearHitMeshes = [];
     const gearIds = Object.keys(GEAR_LAYOUT).filter((id) => GEAR_LAYOUT[id].cluster === clusterName);
 
     for (const id of gearIds) {
@@ -358,6 +405,7 @@ export class ThreeGearMachine {
       gearObj.group.rotation.set(cfg.rot[0], cfg.rot[1], cfg.rot[2]);
       clusterGroup.add(gearObj.group);
       this.gearHitMeshes.push(...gearObj.hitMeshes);
+      clusterGearHitMeshes.push(...gearObj.hitMeshes);
 
       const rearCrown = createBevelGear({
         teeth: 14,
@@ -456,6 +504,9 @@ export class ThreeGearMachine {
         velocity: 0,
         targetStep: 0,
         targetAngle: 0,
+        basePos: new THREE.Vector3(...cfg.pos),
+        baseFwd: new THREE.Vector3(0, 0, 1).applyEuler(new THREE.Euler(...cfg.rot)),
+        focusMix: 0,
         gearObj
       };
     }
@@ -465,6 +516,7 @@ export class ThreeGearMachine {
       sunRotor,
       escRotor: escGear.rotor,
       shafts,
+      gearHitMeshes: clusterGearHitMeshes,
       socketGroup,
       sunAngle: 0,
       escAngle: 0
@@ -543,7 +595,7 @@ export class ThreeGearMachine {
     this.refreshGearLabels(id);
   }
 
-  setEngagedGear(id) {
+  setEngagedGear(id, { rotateToFace = true } = {}) {
     const g = this.gearStates[id];
     if (!g) return;
     const prevCluster = this.state.engagedCluster;
@@ -570,6 +622,50 @@ export class ThreeGearMachine {
         this.state.keyExtractVel += prevCluster !== g.cluster ? 5.2 : 2.2;
       }
     }
+
+    if (rotateToFace) {
+      this.setTurretFace(g.cluster);
+      if (this.state.povMode === 'space') {
+        const gearSide = g.basePos.x < -0.5 ? -0.09 : g.basePos.x > 0.5 ? 0.09 : 0;
+        this.cam.targetTheta = gearSide;
+      }
+    }
+  }
+
+  setTurretFace(clusterName) {
+    const faceBase = clusterName === 'time' ? Math.PI : 0;
+    const delta = normalizeAngle(faceBase - this.state.turretAngle);
+    this.state.turretTargetAngle = this.state.turretAngle + delta;
+    this.state.turretCoasting = false;
+    if (this.prefersReducedMotion()) {
+      this.state.turretAngle = this.state.turretTargetAngle;
+      this.state.turretVel = 0;
+    }
+  }
+
+  rotateTurretBy(deltaRad) {
+    if (!deltaRad) return;
+    this.state.hasRotatedTurret = true;
+    this.state.turretCoasting = false;
+    this.state.turretTargetAngle += deltaRad;
+    if (this.prefersReducedMotion()) {
+      this.state.turretAngle = this.state.turretTargetAngle;
+      this.state.turretVel = 0;
+    }
+  }
+
+  scrubTurret(deltaRad) {
+    if (!deltaRad) return;
+    this.state.hasRotatedTurret = true;
+    this.state.turretCoasting = false;
+    this.state.turretAngle += deltaRad;
+    this.state.turretTargetAngle = this.state.turretAngle;
+    this.state.turretVel = 0;
+  }
+
+  snapTurretToNearestFace() {
+    const face = Math.cos(this.state.turretAngle) >= 0 ? 'date' : 'time';
+    this.setTurretFace(face);
   }
 
   setPov(povMode) {
@@ -582,12 +678,18 @@ export class ThreeGearMachine {
     if (isEarth) {
       this.setEarthStep('room');
     } else {
+      this.pov.targetBody = null;
+      this.pov.solarFilterMix = 0;
+      this.cosmos.setTelescopeOptics({ active: false, solarFilterMix: 0 });
       this.cosmos.setPovMode(false, this.prefersReducedMotion());
+      if (this.celestialState) {
+        this.updateAstronomy(this.celestialState, this.weatherState);
+      }
       this.keyRig.root.visible = true;
       this.cam.targetTheta = SPACE_CAM_HOME.theta;
       this.cam.targetPhi = SPACE_CAM_HOME.phi;
       this.cam.targetRadius = SPACE_CAM_HOME.radius;
-      this.cam.targetLook.copy(SPACE_CAM_HOME.target);
+      this.cam.targetLook.copy(this._isPortrait() ? SPACE_CAM_TARGET_PORTRAIT : SPACE_CAM_HOME.target);
       this.onEarthStepChange(null);
       this._applyCameraFov();
       this.onZoomChange(this.getZoomLabel());
@@ -595,44 +697,142 @@ export class ThreeGearMachine {
   }
 
   setEarthStep(step) {
-    const target = step === 'telescope' ? 'telescope' : 'room';
+    const target = step === 'telescope'
+      ? 'telescope'
+      : step === 'remote'
+        ? 'remote'
+        : 'room';
     this.state.earthStep = target;
     this.onHoverEarth(null);
     this.onHoverInteract(null);
     if (this.room) this.room.setTelescopeHovered(false);
+    if (this.remoteRig && this.remoteRig.setDoneHovered) {
+      this.remoteRig.setDoneHovered(false);
+    }
 
     if (this.state.povMode !== 'earth') return;
 
-    if (target === 'room') {
+    if (target !== 'telescope') {
+      this.pov.targetBody = null;
+      this.pov.solarFilterMix = 0;
+      this.cosmos.setTelescopeOptics({ active: false, solarFilterMix: 0 });
       this.cosmos.setPovMode(false, true);
+      if (this.celestialState) {
+        this.updateAstronomy(this.celestialState, this.weatherState);
+      }
+      this.onTelescopeTargetChange(null);
       this.roomCam.targetYaw = 0;
       this.roomCam.targetPitch = 0;
       this.roomCam.targetFov = ROOM_FOV_HOME;
       this.roomCam.fov = ROOM_FOV_HOME;
-      this._updateRoomCamera(1);
+      if (this.prefersReducedMotion()) {
+        this.roomCam.focusMix = target === 'remote' ? 1 : 0;
+      }
+      if (this.remoteRig && this.remoteRig.setRemoteFocused) {
+        this.remoteRig.setRemoteFocused(target === 'remote');
+      }
+      this._updateRoomCamera(this.prefersReducedMotion() ? 1 : 0, true);
     } else {
-      this.cosmos.setPovMode(true, this.prefersReducedMotion());
+      this.cosmos.setPovMode(true, true);
+      this.pov.solarFilterMix = 0;
+      this.cosmos.setTelescopeOptics({ active: true, solarFilterMix: 0 });
       this.clustersRoot.visible = false;
       this.keyRig.root.visible = false;
+      if (this.remoteRig && this.remoteRig.setRemoteFocused) {
+        this.remoteRig.setRemoteFocused(false);
+      }
 
-      if (this.celestialState && this.celestialState.sunHorizon.altDeg >= -2) {
-        this.pov.targetAzDeg = this.celestialState.sunHorizon.azDeg;
-        this.pov.targetElevDeg = Math.max(10, Math.min(60, this.celestialState.sunHorizon.altDeg));
-      } else if (this.celestialState && this.celestialState.moonHorizon.altDeg >= 4) {
-        this.pov.targetAzDeg = this.celestialState.moonHorizon.azDeg;
-        this.pov.targetElevDeg = Math.max(10, Math.min(64, this.celestialState.moonHorizon.altDeg));
+      const sunH = this.cosmos.getPovBodyHorizon('sun') || (this.celestialState && this.celestialState.sunHorizon);
+      const moonH = this.cosmos.getPovBodyHorizon('moon') || (this.celestialState && this.celestialState.moonHorizon);
+
+      if (sunH && sunH.altDeg >= 0) {
+        this.pov.targetBody = 'sun';
+        this.pov.targetAzDeg = sunH.azDeg;
+        this.pov.targetElevDeg = THREE.MathUtils.clamp(sunH.altDeg, HORIZON_VISIBLE_ALT_DEG, 88.5);
+      } else if (moonH && moonH.altDeg >= HORIZON_VISIBLE_ALT_DEG) {
+        this.pov.targetBody = 'moon';
+        this.pov.targetAzDeg = moonH.azDeg;
+        this.pov.targetElevDeg = THREE.MathUtils.clamp(moonH.altDeg, HORIZON_VISIBLE_ALT_DEG, 88.5);
+      } else if (sunH && sunH.altDeg >= HORIZON_VISIBLE_ALT_DEG) {
+        this.pov.targetBody = 'sun';
+        this.pov.targetAzDeg = sunH.azDeg;
+        this.pov.targetElevDeg = THREE.MathUtils.clamp(sunH.altDeg, HORIZON_VISIBLE_ALT_DEG, 88.5);
       } else {
         const northHemi = !this.celestialState || this.celestialState.observerLatDeg >= 0;
+        this.pov.targetBody = null;
         this.pov.targetAzDeg = northHemi ? 180 : 0;
-        this.pov.targetElevDeg = 24;
+        this.pov.targetElevDeg = 28;
       }
-      this.pov.targetFov = TELESCOPE_FOV_HOME;
+
+      // Snap initial bore-sight onto acquired sky sector to avoid spinning from stale angles
+      this.pov.azDeg = this.pov.targetAzDeg;
+      this.pov.elevDeg = this.pov.targetElevDeg;
       this.pov.fov = TELESCOPE_FOV_HOME;
-      this._applyCameraFov();
+      this.pov.targetFov = this.pov.targetBody ? telescopeMagToFov(3.5) : TELESCOPE_FOV_HOME;
+      if (this.prefersReducedMotion()) {
+        this.pov.fov = this.pov.targetFov;
+      }
+      this._applyCameraFov(true);
+      this.onTelescopeTargetChange(this.pov.targetBody);
     }
 
     this.onEarthStepChange(target);
     this.onZoomChange(this.getZoomLabel());
+  }
+
+  focusTelescopeBody(body, { zoomToAcquire = true } = {}) {
+    if (body !== 'sun' && body !== 'moon') {
+      this.pov.targetBody = null;
+      this.onTelescopeTargetChange(null);
+      return { visible: false, body: null, altDeg: -90 };
+    }
+    const h = this.cosmos.getPovBodyHorizon(body)
+      || (body === 'sun'
+        ? (this.celestialState && this.celestialState.sunHorizon)
+        : (this.celestialState && this.celestialState.moonHorizon));
+    if (!h) {
+      return { visible: false, body, altDeg: -90 };
+    }
+
+    if (h.altDeg < HORIZON_VISIBLE_ALT_DEG) {
+      this.pov.targetBody = null;
+      this.pov.targetAzDeg = h.azDeg;
+      this.pov.targetElevDeg = 2.0;
+      if (this.pov.targetFov < TELESCOPE_FOV_HOME) {
+        this.pov.targetFov = TELESCOPE_FOV_HOME;
+      }
+      if (this.prefersReducedMotion()) {
+        this.pov.azDeg = this.pov.targetAzDeg;
+        this.pov.elevDeg = this.pov.targetElevDeg;
+        this.pov.fov = this.pov.targetFov;
+        this._applyCameraFov(true);
+      }
+      this.onTelescopeTargetChange(null);
+      this.onZoomChange(this.getZoomLabel());
+      return { visible: false, body, altDeg: h.altDeg, azDeg: h.azDeg };
+    }
+
+    const alreadyLocked = this.pov.targetBody === body;
+    this.pov.targetBody = body;
+    this.pov.targetAzDeg = h.azDeg;
+    this.pov.targetElevDeg = THREE.MathUtils.clamp(h.altDeg, HORIZON_VISIBLE_ALT_DEG, 88.5);
+    if (zoomToAcquire) {
+      const curMag = fovToTelescopeMag(this.pov.targetFov);
+      if (!alreadyLocked && curMag < 5.5) {
+        this.pov.targetFov = telescopeMagToFov(6.0);
+      } else if (alreadyLocked && curMag < 11.5) {
+        this.pov.targetFov = telescopeMagToFov(12.0);
+      }
+    }
+    if (this.prefersReducedMotion()) {
+      this.pov.azDeg = this.pov.targetAzDeg;
+      this.pov.elevDeg = this.pov.targetElevDeg;
+      this.pov.fov = this.pov.targetFov;
+      this._applyCameraFov(true);
+    }
+    this.onTelescopeTargetChange(body);
+    this.onZoomChange(this.getZoomLabel());
+    return { visible: true, body, altDeg: h.altDeg, azDeg: h.azDeg };
   }
 
   updateRemoteDisplay(info) {
@@ -644,9 +844,9 @@ export class ThreeGearMachine {
   getZoomLabel() {
     let mag = 1.0;
     if (this.state.povMode === 'earth') {
-      mag = this.state.earthStep === 'room'
+      mag = this.state.earthStep !== 'telescope'
         ? ROOM_FOV_HOME / this.roomCam.targetFov
-        : TELESCOPE_FOV_HOME / this.pov.targetFov;
+        : fovToTelescopeMag(this.pov.targetFov);
     } else {
       mag = SPACE_CAM_HOME.radius / this.cam.targetRadius;
     }
@@ -655,17 +855,19 @@ export class ThreeGearMachine {
 
   zoomIn(factor = 1.25) {
     if (this.state.povMode === 'earth') {
-      if (this.state.earthStep === 'room') {
+      if (this.state.earthStep !== 'telescope') {
         this.roomCam.targetFov = Math.max(ROOM_FOV_MIN, this.roomCam.targetFov / factor);
         if (this.prefersReducedMotion()) {
           this.roomCam.fov = this.roomCam.targetFov;
           this._updateRoomCamera(1);
         }
       } else {
-        this.pov.targetFov = Math.max(TELESCOPE_FOV_MIN, this.pov.targetFov / factor);
+        const curMag = fovToTelescopeMag(this.pov.targetFov);
+        const nextMag = Math.min(TELESCOPE_MAG_MAX, curMag * factor);
+        this.pov.targetFov = Math.max(TELESCOPE_FOV_MIN, telescopeMagToFov(nextMag));
         if (this.prefersReducedMotion()) {
           this.pov.fov = this.pov.targetFov;
-          this._applyCameraFov();
+          this._applyCameraFov(true);
         }
       }
     } else {
@@ -679,17 +881,19 @@ export class ThreeGearMachine {
 
   zoomOut(factor = 1.25) {
     if (this.state.povMode === 'earth') {
-      if (this.state.earthStep === 'room') {
+      if (this.state.earthStep !== 'telescope') {
         this.roomCam.targetFov = Math.min(ROOM_FOV_MAX, this.roomCam.targetFov * factor);
         if (this.prefersReducedMotion()) {
           this.roomCam.fov = this.roomCam.targetFov;
           this._updateRoomCamera(1);
         }
       } else {
-        this.pov.targetFov = Math.min(TELESCOPE_FOV_MAX, this.pov.targetFov * factor);
+        const curMag = fovToTelescopeMag(this.pov.targetFov);
+        const nextMag = Math.max(TELESCOPE_MAG_MIN, curMag / factor);
+        this.pov.targetFov = Math.min(TELESCOPE_FOV_MAX, telescopeMagToFov(nextMag));
         if (this.prefersReducedMotion()) {
           this.pov.fov = this.pov.targetFov;
-          this._applyCameraFov();
+          this._applyCameraFov(true);
         }
       }
     } else {
@@ -703,7 +907,7 @@ export class ThreeGearMachine {
 
   resetZoom() {
     if (this.state.povMode === 'earth') {
-      if (this.state.earthStep === 'room') {
+      if (this.state.earthStep !== 'telescope') {
         this.roomCam.targetFov = ROOM_FOV_HOME;
         if (this.prefersReducedMotion()) {
           this.roomCam.fov = ROOM_FOV_HOME;
@@ -761,30 +965,32 @@ export class ThreeGearMachine {
     return (this.camera.aspect || 1) < PORTRAIT_ASPECT;
   }
 
-  // Side-by-side clusters on wide screens (and always on the room monitor feed); stacked on phones
-  _setClusterLayout(portrait) {
-    if (this._clusterLayoutPortrait === portrait) return;
-    this._clusterLayoutPortrait = portrait;
-    const pos = portrait ? CLUSTER_POS_PORTRAIT : CLUSTER_POS;
-    const rot = portrait ? CLUSTER_ROT_Y_PORTRAIT : CLUSTER_ROT_Y;
+  // Connected back-to-back horological gyroscope across all viewports and monitor
+  _setClusterLayout() {
     for (const name of ['date', 'time']) {
       const cl = this.clusterObjects[name];
       const group = cl && (cl.group || cl.clusterGroup);
       if (!group) continue;
-      group.position.copy(pos[name]);
-      group.rotation.y = rot[name];
+      group.position.copy(CLUSTER_POS_CONNECTED[name]);
+      group.rotation.y = CLUSTER_ROT_Y_CONNECTED[name];
+      group.visible = true;
+    }
+
+    if (this.portraitTurret) {
+      this.portraitTurret.root.visible = true;
     }
   }
 
   _applyCameraFov(force = false) {
     const aspect = this.camera.aspect || 1;
     const baseFov = aspect < 1.38 ? Math.min(66, 42 * (1.38 / aspect)) : 42;
-    const nextFov = this.state.povMode === 'earth' && this.state.earthStep === 'telescope'
-      ? THREE.MathUtils.clamp(baseFov * (this.pov.fov / TELESCOPE_FOV_HOME), 11, 74)
+    const inTelescope = this.state.povMode === 'earth' && this.state.earthStep === 'telescope';
+    const nextFov = inTelescope
+      ? THREE.MathUtils.clamp(this.pov.fov, 1.8, 68)
       : baseFov;
     if (
       force ||
-      Math.abs(this.camera.fov - nextFov) > 0.01 ||
+      Math.abs(this.camera.fov - nextFov) > 0.002 ||
       Math.abs(aspect - this._lastCamAspect) > 0.0005
     ) {
       this._lastCamAspect = aspect;
@@ -797,6 +1003,8 @@ export class ThreeGearMachine {
     this.roomCam.yaw += (this.roomCam.targetYaw - this.roomCam.yaw) * lerpFactor;
     this.roomCam.pitch += (this.roomCam.targetPitch - this.roomCam.pitch) * lerpFactor;
     this.roomCam.fov += (this.roomCam.targetFov - this.roomCam.fov) * lerpFactor;
+    const targetFocus = this.state.earthStep === 'remote' ? 1 : 0;
+    this.roomCam.focusMix += (targetFocus - this.roomCam.focusMix) * lerpFactor;
 
     const aspect = this.camera.aspect || 1;
     this.roomCamera.aspect = aspect;
@@ -817,12 +1025,18 @@ export class ThreeGearMachine {
     }
 
     const isPortrait = aspect < 0.85;
-    this.roomCamera.position.set(isPortrait ? 0.04 : 0.0, isPortrait ? 1.62 : 1.50, isPortrait ? 3.52 : 2.34);
-    this.roomCamera.lookAt(
-      0.04 + Math.sin(this.roomCam.yaw) * 3.2,
+    const roomPos = new THREE.Vector3(isPortrait ? 0.08 : 0.0, isPortrait ? 1.62 : 1.50, isPortrait ? 3.72 : 2.34);
+    const roomLook = new THREE.Vector3(
+      (isPortrait ? 0.06 : 0.04) + Math.sin(this.roomCam.yaw) * 3.2,
       (isPortrait ? 1.08 : 1.12) + Math.sin(this.roomCam.pitch) * 2.2,
       -1.0
     );
+    const remotePos = new THREE.Vector3(-0.02, isPortrait ? 1.50 : 1.77, isPortrait ? 1.09 : 1.29);
+    const remoteLook = new THREE.Vector3(-0.02, 0.93, 0.65);
+
+    const mix = THREE.MathUtils.clamp(this.roomCam.focusMix, 0, 1);
+    this.roomCamera.position.lerpVectors(roomPos, remotePos, mix);
+    this.roomCamera.lookAt(roomLook.lerp(remoteLook, mix));
     this.roomCamera.updateMatrixWorld(true);
   }
 
@@ -833,6 +1047,7 @@ export class ThreeGearMachine {
   updateAstronomy(celestial, weather = null) {
     this.celestialState = celestial;
     if (weather) this.weatherState = weather;
+    if (this.state.povMode === 'earth' && this.state.earthStep === 'telescope') return;
     this.hemiLight.intensity = 0.68 + 0.68 * celestial.dayFactor;
     this.warmFillLight.intensity = 3.4 + 1.2 * celestial.dayFactor;
     this.coolRimLight.intensity = 2.6 - 0.8 * celestial.dayFactor;
@@ -864,11 +1079,15 @@ export class ThreeGearMachine {
     const raycaster = new THREE.Raycaster();
     const pointerNDC = new THREE.Vector2();
 
-    let mode = null; // 'key' | 'orbit' | null
+    let mode = null; // 'key' | 'gearDrag' | 'turretDrag' | 'orbit' | null
     let activePointerId = null;
     let lastClientX = 0;
     let lastClientY = 0;
     let prevKeyScreenAngle = 0;
+    let draggedGearId = null;
+    let gearDragStarted = false;
+    let prevGearScreenAngle = 0;
+    let turretAngVel = 0;
     let lastMoveTime = 0;
     let keyAngVel = 0;
     let totalDragDist = 0;
@@ -876,9 +1095,10 @@ export class ThreeGearMachine {
     let wheelTimer = null;
     let earthClickCandidate = null;
     let roomClickAction = null;
+    let skyBodyClickCandidate = null;
 
     const getActiveCamera = () => (
-      this.state.povMode === 'earth' && this.state.earthStep === 'room'
+      this.state.povMode === 'earth' && this.state.earthStep !== 'telescope'
         ? this.roomCamera
         : this.camera
     );
@@ -902,7 +1122,7 @@ export class ThreeGearMachine {
       const pivotWorld = new THREE.Vector3();
       const bowWorld = new THREE.Vector3();
 
-      if (this.state.povMode === 'earth' && this.state.earthStep === 'room') {
+      if (this.state.povMode === 'earth' && this.state.earthStep !== 'telescope') {
         this.room.scene.updateMatrixWorld(true);
         this.remoteRig.knobPivot.getWorldPosition(pivotWorld);
         bowWorld.set(0, 0, 0.14).applyMatrix4(this.remoteRig.knobPivot.matrixWorld);
@@ -923,11 +1143,58 @@ export class ThreeGearMachine {
       };
     };
 
+    const getGearScreenCenter = (gearId, rect) => {
+      const worldCenter = new THREE.Vector3();
+      this.gearStates[gearId].gearObj.group.getWorldPosition(worldCenter);
+      return projectWorldToScreen(worldCenter, rect);
+    };
+
+    const applyKeyDelta = (deltaAngle, dt) => {
+      if (!this.state.hasDraggedKey && Math.abs(deltaAngle) > 0.05) {
+        this.state.hasDraggedKey = true;
+        this.onFirstKeyDrag();
+      }
+      this.state.keyAngle += deltaAngle;
+      this.state.keyVel = 0;
+      this.state.coastingFree = false;
+      keyAngVel = keyAngVel * 0.45 + (deltaAngle / dt) * 0.55;
+
+      const liveDetent = Math.round(this.state.keyAngle / KEY_DETENT_ANGLE);
+      if (liveDetent !== this.state.keyTargetStep) {
+        const stepDiff = liveDetent - this.state.keyTargetStep;
+        this.state.keyTargetStep = liveDetent;
+        this.onKeyStep(stepDiff);
+      }
+    };
+
+    const releaseKeyOrGearDrag = () => {
+      this.state.isDraggingKey = false;
+      this.keyRig.setDragging(false);
+      const releaseVel = (performance.now() - lastMoveTime) > 85 ? 0 : keyAngVel;
+      if (Math.abs(releaseVel) > 1.8 && !this.prefersReducedMotion()) {
+        this.state.keyVel = THREE.MathUtils.clamp(releaseVel, -16, 16);
+        this.state.coastingFree = true;
+      } else {
+        this.state.coastingFree = false;
+        this.state.keyVel = THREE.MathUtils.clamp(releaseVel * 0.25, -4, 4);
+        const coast = Math.max(-1.5 * KEY_DETENT_ANGLE, Math.min(1.5 * KEY_DETENT_ANGLE, releaseVel * 0.08));
+        const snapped = Math.round((this.state.keyAngle + coast) / KEY_DETENT_ANGLE);
+        if (snapped !== this.state.keyTargetStep) {
+          const stepDiff = snapped - this.state.keyTargetStep;
+          this.state.keyTargetStep = snapped;
+          this.onKeyStep(stepDiff);
+        }
+      }
+    };
+
     const activeRayTargets = () => {
       if (this.state.povMode === 'earth') {
-        return this.state.earthStep === 'room' ? this.room.getRayTargets() : [];
+        return this.state.earthStep !== 'telescope'
+          ? this.room.getRayTargets()
+          : this.cosmos.skyBodyHitMeshes;
       }
-      return [...this.keyRig.hitMeshes, ...this.gearHitMeshes, ...this.cosmos.earthHitMeshes];
+      const turretDial = this.portraitTurret ? this.portraitTurret.hitMeshes : [];
+      return [...turretDial, ...this.keyRig.hitMeshes, ...this.gearHitMeshes, ...this.cosmos.earthHitMeshes];
     };
 
     const activeTouches = new Map();
@@ -941,11 +1208,16 @@ export class ThreeGearMachine {
           const pts = [...activeTouches.values()];
           prevPinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
           mode = null;
+          draggedGearId = null;
+          gearDragStarted = false;
           activePointerId = null;
           this.state.isDraggingKey = false;
           this.keyRig.setDragging(false);
+          this.state.isDraggingTurret = false;
+          if (this.portraitTurret) this.portraitTurret.setDialDragging(false);
           earthClickCandidate = null;
           roomClickAction = null;
+          skyBodyClickCandidate = null;
           return;
         }
       }
@@ -963,11 +1235,36 @@ export class ThreeGearMachine {
       keyAngVel = 0;
       earthClickCandidate = null;
       roomClickAction = null;
+      skyBodyClickCandidate = null;
 
       if (hits.length > 0) {
         const hitData = hits[0].object.userData;
 
+        if (hitData.interactiveType === 'remoteDone') {
+          mode = null;
+          this.setEarthStep('room');
+          return;
+        }
+
+        if (hitData.interactiveType === 'turretDial') {
+          mode = 'turretDrag';
+          this.state.isDraggingTurret = true;
+          this.state.turretCoasting = false;
+          this.state.turretVel = 0;
+          turretAngVel = 0;
+          if (this.portraitTurret) this.portraitTurret.setDialDragging(true);
+          if (this.canvas.setPointerCapture) {
+            try {
+              this.canvas.setPointerCapture(e.pointerId);
+            } catch (_) {}
+          }
+          return;
+        }
+
         if (hitData.interactiveType === 'key') {
+          if (this.state.povMode === 'earth' && this.state.earthStep === 'room') {
+            this.setEarthStep('remote');
+          }
           mode = 'key';
           this.state.isDraggingKey = true;
           this.state.coastingFree = false;
@@ -996,8 +1293,38 @@ export class ThreeGearMachine {
               this.onSelectGear(gearId);
             }
           }
-          mode = hitData.interactiveType === 'remoteBtn' ? null : 'orbit';
-          if (mode && this.canvas.setPointerCapture) {
+          if (hitData.interactiveType === 'remoteBtn' && this.state.povMode === 'earth' && this.state.earthStep === 'room') {
+            this.setEarthStep('remote');
+          }
+          if (hitData.interactiveType === 'gear' && gs && !gs.isLocked) {
+            mode = 'gearDrag';
+            draggedGearId = gearId;
+            gearDragStarted = false;
+            const center = getGearScreenCenter(gearId, rect);
+            prevGearScreenAngle = Math.atan2(e.clientY - center.y, e.clientX - center.x);
+            if (this.canvas.setPointerCapture) {
+              try {
+                this.canvas.setPointerCapture(e.pointerId);
+              } catch (_) {}
+            }
+          } else {
+            mode = null;
+          }
+          return;
+        }
+
+        if (hitData.interactiveType === 'remoteBody') {
+          if (this.state.povMode === 'earth' && this.state.earthStep === 'room') {
+            this.setEarthStep('remote');
+          }
+          mode = null;
+          return;
+        }
+
+        if (hitData.interactiveType === 'telescope' || hitData.interactiveType === 'monitorScreen') {
+          roomClickAction = hitData.interactiveType;
+          mode = 'orbit';
+          if (this.canvas.setPointerCapture) {
             try {
               this.canvas.setPointerCapture(e.pointerId);
             } catch (_) {}
@@ -1005,13 +1332,8 @@ export class ThreeGearMachine {
           return;
         }
 
-        if (hitData.interactiveType === 'remoteBody') {
-          mode = null;
-          return;
-        }
-
-        if (hitData.interactiveType === 'telescope' || hitData.interactiveType === 'monitorScreen') {
-          roomClickAction = hitData.interactiveType;
+        if (hitData.interactiveType === 'skyBody') {
+          skyBodyClickCandidate = hitData.body || null;
           mode = 'orbit';
           if (this.canvas.setPointerCapture) {
             try {
@@ -1062,9 +1384,15 @@ export class ThreeGearMachine {
 
         this.keyRig.setHovered(hitType === 'key');
         this.remoteRig.setKnobHovered(hitType === 'key');
-        const inRoom = this.state.povMode === 'earth' && this.state.earthStep === 'room';
+        if (this.portraitTurret) {
+          this.portraitTurret.setDialHovered(hitType === 'turretDial');
+        }
+        const inRoomView = this.state.povMode === 'earth' && this.state.earthStep !== 'telescope';
         if (this.room) {
-          this.room.setTelescopeHovered(inRoom && hitType === 'telescope');
+          this.room.setTelescopeHovered(inRoomView && hitType === 'telescope');
+        }
+        if (this.remoteRig && this.remoteRig.setDoneHovered) {
+          this.remoteRig.setDoneHovered(inRoomView && hitType === 'remoteDone');
         }
 
         if (hitType === 'countryPin' || hitType === 'earth') {
@@ -1074,7 +1402,34 @@ export class ThreeGearMachine {
           this.onHoverEarth(
             country ? { country, x: e.clientX - rect.left, y: e.clientY - rect.top } : null
           );
-        } else if (inRoom && (hitType === 'telescope' || hitType === 'monitorScreen')) {
+        } else if (inRoomView && hitType === 'remoteDone') {
+          this.onHoverEarth(null);
+          this.canvas.style.cursor = 'pointer';
+          this.onHoverInteract({
+            text: 'Done · Return focus to Observatory Room',
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+          });
+        } else if (inRoomView && hitType === 'remoteBody' && this.state.earthStep === 'room') {
+          this.onHoverEarth(null);
+          this.canvas.style.cursor = 'pointer';
+          this.onHoverInteract({
+            text: 'Desk Remote · Click to focus controller',
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+          });
+        } else if (this.state.povMode === 'earth' && this.state.earthStep === 'telescope' && hitType === 'skyBody') {
+          const body = first.object.userData.body;
+          this.onHoverEarth(null);
+          this.canvas.style.cursor = 'pointer';
+          this.onHoverInteract({
+            text: body === 'sun'
+              ? 'Sun · Click to lock & zoom (ND5 filter)'
+              : 'Moon · Click to lock & zoom',
+            x: e.clientX - rect.left,
+            y: e.clientY - rect.top
+          });
+        } else if (inRoomView && (hitType === 'telescope' || hitType === 'monitorScreen')) {
           this.onHoverEarth(null);
           this.canvas.style.cursor = 'pointer';
           this.onHoverInteract({
@@ -1088,9 +1443,9 @@ export class ThreeGearMachine {
           this.onHoverEarth(null);
           this.onHoverInteract(null);
           this.canvas.style.cursor =
-            hitType === 'key'
+            hitType === 'key' || hitType === 'turretDial'
               ? 'grab'
-              : hitType === 'gear' || hitType === 'remoteBtn'
+              : hitType === 'gear' || hitType === 'remoteBtn' || hitType === 'remoteDone'
                 ? 'pointer'
                 : 'move';
         }
@@ -1105,6 +1460,19 @@ export class ThreeGearMachine {
       totalDragDist += Math.hypot(dx, dy);
       lastClientX = e.clientX;
       lastClientY = e.clientY;
+
+      if (mode === 'turretDrag') {
+        const nowMs = performance.now();
+        const dt = Math.max(0.008, (nowMs - lastMoveTime) / 1000);
+        lastMoveTime = nowMs;
+
+        const dTheta = dx * 0.015;
+        this.state.hasRotatedTurret = true;
+        this.state.turretAngle += dTheta;
+        this.state.turretTargetAngle = this.state.turretAngle;
+        turretAngVel = turretAngVel * 0.4 + (dTheta / dt) * 0.6;
+        return;
+      }
 
       if (mode === 'key') {
         const nowMs = performance.now();
@@ -1131,22 +1499,50 @@ export class ThreeGearMachine {
           deltaAngle = (dx * perpX + dy * perpY) / 52;
         }
 
-        if (!this.state.hasDraggedKey && Math.abs(deltaAngle) > 0.05) {
-          this.state.hasDraggedKey = true;
-          this.onFirstKeyDrag();
+        applyKeyDelta(deltaAngle, dt);
+        return;
+      }
+
+      if (mode === 'gearDrag' && draggedGearId) {
+        if (totalDragDist <= 6) return;
+        const gs = this.gearStates[draggedGearId];
+        if (!gs || gs.isLocked) return;
+
+        const center = getGearScreenCenter(draggedGearId, rect);
+        if (!gearDragStarted) {
+          gearDragStarted = true;
+          this.state.isDraggingKey = true;
+          this.state.coastingFree = false;
+          this.state.keyVel = 0;
+          this.keyRig.setDragging(true);
+          lastMoveTime = performance.now();
+          prevGearScreenAngle = Math.atan2(e.clientY - center.y, e.clientX - center.x);
+          return;
         }
 
-        this.state.keyAngle += deltaAngle;
-        this.state.keyVel = 0;
-        this.state.coastingFree = false;
-        keyAngVel = keyAngVel * 0.45 + (deltaAngle / dt) * 0.55;
+        const nowMs = performance.now();
+        const dt = Math.max(0.008, (nowMs - lastMoveTime) / 1000);
+        lastMoveTime = nowMs;
 
-        const liveDetent = Math.round(this.state.keyAngle / KEY_DETENT_ANGLE);
-        if (liveDetent !== this.state.keyTargetStep) {
-          const stepDiff = liveDetent - this.state.keyTargetStep;
-          this.state.keyTargetStep = liveDetent;
-          this.onKeyStep(stepDiff);
+        const dist = Math.hypot(e.clientX - center.x, e.clientY - center.y);
+        const gearWorldQuat = new THREE.Quaternion();
+        gs.gearObj.group.getWorldQuaternion(gearWorldQuat);
+        const gearFwd = new THREE.Vector3(0, 0, 1).applyQuaternion(gearWorldQuat);
+        const camDir = new THREE.Vector3();
+        getActiveCamera().getWorldDirection(camDir);
+        const facingSign = -gearFwd.dot(camDir) >= 0 ? 1 : -1;
+
+        let deltaKeyAngle = 0;
+        if (dist > 16) {
+          const currAng = Math.atan2(e.clientY - center.y, e.clientX - center.x);
+          const screenCw = normalizeAngle(currAng - prevGearScreenAngle);
+          prevGearScreenAngle = currAng;
+          deltaKeyAngle = -screenCw * facingSign * (KEY_DETENT_ANGLE / gs.stepAngle);
+        } else {
+          deltaKeyAngle = (-dx / 38) * facingSign * KEY_DETENT_ANGLE;
         }
+
+        applyKeyDelta(deltaKeyAngle, dt);
         return;
       }
 
@@ -1155,9 +1551,15 @@ export class ThreeGearMachine {
           if (this.state.earthStep === 'room') {
             this.roomCam.targetYaw = THREE.MathUtils.clamp(this.roomCam.targetYaw - dx * 0.0028, -0.45, 0.45);
             this.roomCam.targetPitch = THREE.MathUtils.clamp(this.roomCam.targetPitch + dy * 0.0022, -0.22, 0.28);
-          } else {
-            this.pov.targetAzDeg = ((this.pov.targetAzDeg - dx * 0.25) % 360 + 360) % 360;
-            this.pov.targetElevDeg = Math.max(-6, Math.min(82, this.pov.targetElevDeg + dy * 0.20));
+          } else if (this.state.earthStep === 'telescope') {
+            if (this.pov.targetBody) {
+              this.pov.targetBody = null;
+              this.onTelescopeTargetChange(null);
+            }
+            const degPerPx = (this.camera.fov / Math.max(300, rect.height)) * 1.15;
+            const cosEl = Math.max(0.18, Math.cos(this.pov.targetElevDeg * DEG_TO_RAD));
+            this.pov.targetAzDeg = ((this.pov.targetAzDeg - (dx * degPerPx) / cosEl) % 360 + 360) % 360;
+            this.pov.targetElevDeg = THREE.MathUtils.clamp(this.pov.targetElevDeg + dy * degPerPx, -4, 88.5);
           }
         } else {
           this.cam.targetTheta -= dx * 0.0075;
@@ -1181,25 +1583,33 @@ export class ThreeGearMachine {
       }
 
       if (mode === 'key') {
-        this.state.isDraggingKey = false;
-        this.keyRig.setDragging(false);
-        const releaseVel = (performance.now() - lastMoveTime) > 85 ? 0 : keyAngVel;
+        releaseKeyOrGearDrag();
+      } else if (mode === 'gearDrag') {
+        if (gearDragStarted) {
+          releaseKeyOrGearDrag();
+        }
+        draggedGearId = null;
+        gearDragStarted = false;
+      } else if (mode === 'turretDrag') {
+        this.state.isDraggingTurret = false;
+        if (this.portraitTurret) this.portraitTurret.setDialDragging(false);
+        const releaseVel = (performance.now() - lastMoveTime) > 90 ? 0 : turretAngVel;
         if (Math.abs(releaseVel) > 1.8 && !this.prefersReducedMotion()) {
-          this.state.keyVel = THREE.MathUtils.clamp(releaseVel, -16, 16);
-          this.state.coastingFree = true;
+          this.state.turretVel = THREE.MathUtils.clamp(releaseVel, -12, 12);
+          this.state.turretCoasting = true;
         } else {
-          this.state.coastingFree = false;
-          this.state.keyVel = THREE.MathUtils.clamp(releaseVel * 0.25, -4, 4);
-          const coast = Math.max(-1.5 * KEY_DETENT_ANGLE, Math.min(1.5 * KEY_DETENT_ANGLE, releaseVel * 0.08));
-          const snapped = Math.round((this.state.keyAngle + coast) / KEY_DETENT_ANGLE);
-          if (snapped !== this.state.keyTargetStep) {
-            const stepDiff = snapped - this.state.keyTargetStep;
-            this.state.keyTargetStep = snapped;
-            this.onKeyStep(stepDiff);
+          const nearFace = Math.cos(this.state.turretAngle) >= 0 ? 'date' : 'time';
+          const nearRad = nearFace === 'time' ? Math.PI : 0;
+          if (Math.abs(normalizeAngle(nearRad - this.state.turretAngle)) < 14 * DEG_TO_RAD) {
+            this.setTurretFace(nearFace);
+          } else {
+            this.state.turretTargetAngle = this.state.turretAngle;
           }
         }
       } else if (mode === 'orbit' && totalDragDist < 6) {
-        if (roomClickAction === 'telescope') {
+        if (skyBodyClickCandidate) {
+          this.focusTelescopeBody(skyBodyClickCandidate, { zoomToAcquire: true });
+        } else if (roomClickAction === 'telescope') {
           this.setEarthStep('telescope');
         } else if (roomClickAction === 'monitorScreen') {
           this.onRequestSpacePov();
@@ -1209,6 +1619,7 @@ export class ThreeGearMachine {
       }
       earthClickCandidate = null;
       roomClickAction = null;
+      skyBodyClickCandidate = null;
       mode = null;
     };
 
@@ -1218,6 +1629,9 @@ export class ThreeGearMachine {
       this.onHoverEarth(null);
       this.onHoverInteract(null);
       if (this.room) this.room.setTelescopeHovered(false);
+      if (this.remoteRig && this.remoteRig.setDoneHovered) {
+        this.remoteRig.setDoneHovered(false);
+      }
     });
 
     this.canvas.addEventListener(
@@ -1230,7 +1644,8 @@ export class ThreeGearMachine {
         const hits = raycaster.intersectObjects(activeRayTargets(), false);
         const hit = hits.length > 0 ? hits[0].object.userData : null;
 
-        if ((hit && hit.interactiveType === 'key') || (hit && hit.interactiveType === 'gear') || e.shiftKey) {
+        const inTelescope = this.state.povMode === 'earth' && this.state.earthStep === 'telescope';
+        if (!inTelescope && ((hit && hit.interactiveType === 'key') || (hit && hit.interactiveType === 'gear') || e.shiftKey)) {
           if (hit && hit.interactiveType === 'gear' && hit.gearId !== this.state.engagedGearId) {
             const gs = this.gearStates[hit.gearId];
             if (gs && !gs.isLocked) {
@@ -1254,7 +1669,7 @@ export class ThreeGearMachine {
           return;
         }
 
-        const zoomScale = Math.exp(-e.deltaY * 0.0016);
+        const zoomScale = Math.exp(-e.deltaY * (inTelescope ? 0.0018 : 0.0016));
         if (zoomScale > 1.001) {
           this.zoomIn(zoomScale);
         } else if (zoomScale < 0.999) {
@@ -1393,6 +1808,12 @@ export class ThreeGearMachine {
           g.velocity = gr.vel;
         }
 
+        // Physical spatial focus: active gear steps forward (+0.36) and scales up (1.12x vs 0.93x siblings)
+        const targetFocus = g.id === engagedId && this.state.povMode === 'space' ? 1 : 0;
+        g.focusMix += (targetFocus - g.focusMix) * (reduced ? 1 : Math.min(1, dt * 8.5));
+        g.gearObj.group.position.copy(g.basePos).addScaledVector(g.baseFwd, g.focusMix * 0.36);
+        g.gearObj.group.scale.setScalar(0.93 + g.focusMix * 0.19);
+
         g.gearObj.rotor.rotation.z = g.angle;
         if (g.labelFn) {
           const centerStep = Math.round(g.angle / g.stepAngle);
@@ -1417,6 +1838,11 @@ export class ThreeGearMachine {
             activeCl.escAngle -= (18 / 14) * dSun;
             activeCl.sunRotor.rotation.z = activeCl.sunAngle;
             activeCl.escRotor.rotation.z = activeCl.escAngle;
+
+            // Synchronized gyroscope core bevels & side coupling gears
+            if (this.portraitTurret && this.portraitTurret.root.visible) {
+              this.portraitTurret.spinCouplers(dGear);
+            }
           }
         } else {
           g.prevAngle = g.angle;
@@ -1425,16 +1851,17 @@ export class ThreeGearMachine {
 
       const camLerp = reduced ? 1 : Math.min(1, dt * (this._camLerpRate || 6.5));
       if (this.state.povMode === 'earth') {
-        if (this.state.earthStep === 'room') {
+        if (this.state.earthStep !== 'telescope') {
           // 1. Update Space scene + Winding Key so Monitor Feed stays 100% live
           this.cosmos.setPovMode(false, true);
-          this._setClusterLayout(false);
+          this._setClusterLayout();
           this.clustersRoot.visible = true;
-          this.clustersRoot.position.set(0, 0, 0);
-          this.clustersRoot.rotation.set(0, 0, 0);
-          this.clustersRoot.scale.setScalar(0.90);
+          this.clustersRoot.position.copy(DESKTOP_ROOT_POS);
+          this.clustersRoot.rotation.set(0, this.state.turretAngle, 0);
+          this.clustersRoot.scale.setScalar(0.68);
           this.clustersRoot.updateMatrixWorld(true);
           this.warmFillLight.position.set(0, -1.2, 7.0);
+          if (this.gearFocusLight) this.gearFocusLight.intensity = 3.6;
 
           const socketPose = this._getSocketWorldPose(this.state.engagedCluster);
           if (reduced) {
@@ -1448,7 +1875,7 @@ export class ThreeGearMachine {
           this.keyRig.root.visible = true;
           this.keyRig.root.position.copy(this.state.keyPos);
           this.keyRig.root.quaternion.copy(this.state.keyQuat);
-          this.keyRig.root.scale.setScalar(0.84);
+          this.keyRig.root.scale.setScalar(0.68);
           this.keyRig.root.updateMatrixWorld(true);
 
           // Render real Outer Space scene into desk monitor WebGLRenderTarget
@@ -1464,30 +1891,65 @@ export class ThreeGearMachine {
           this._updateRoomCamera(camLerp);
           this.renderer.render(this.room.scene, this.roomCamera);
         } else {
-          // Step 2: Looking purely through the Room's Telescope (zero floating gears)
+          // Step 2: Looking purely through the Room's Telescope (zero floating gears or studio fill lights)
           this.clustersRoot.visible = false;
           this.keyRig.root.visible = false;
+          if (this.gearFocusLight) this.gearFocusLight.intensity = 0;
+          this.warmFillLight.intensity = 0;
+          this.coolRimLight.intensity = 0;
+          this.hemiLight.intensity = 0.06;
 
+          if (this.pov.targetBody) {
+            const h = this.cosmos.getPovBodyHorizon(this.pov.targetBody);
+            if (h && h.altDeg >= HORIZON_VISIBLE_ALT_DEG) {
+              this.pov.targetAzDeg = h.azDeg;
+              this.pov.targetElevDeg = THREE.MathUtils.clamp(h.altDeg, HORIZON_VISIBLE_ALT_DEG, 88.5);
+            } else {
+              this.pov.targetBody = null;
+              this.onTelescopeTargetChange(null);
+            }
+          }
+
+          const scopeLerp = reduced ? 1 : Math.min(1, dt * 8.0);
           const azDiff = normalizeAngle((this.pov.targetAzDeg - this.pov.azDeg) * DEG_TO_RAD) * (180 / Math.PI);
-          this.pov.azDeg = (this.pov.azDeg + azDiff * camLerp + 360) % 360;
-          this.pov.elevDeg += (this.pov.targetElevDeg - this.pov.elevDeg) * camLerp;
+          this.pov.azDeg = (this.pov.azDeg + azDiff * scopeLerp + 360) % 360;
+          this.pov.elevDeg += (this.pov.targetElevDeg - this.pov.elevDeg) * scopeLerp;
           this.pov.fov += (this.pov.targetFov - this.pov.fov) * camLerp;
           this._applyCameraFov();
 
           const azR = this.pov.azDeg * DEG_TO_RAD;
           const elR = this.pov.elevDeg * DEG_TO_RAD;
+          const lx = Math.cos(elR) * Math.sin(azR);
+          const ly = Math.sin(elR);
+          const lz = -Math.cos(elR) * Math.cos(azR);
           this.camera.position.set(0, 0.35, 0);
-          this.camera.lookAt(
-            Math.cos(elR) * Math.sin(azR) * 10,
-            0.35 + Math.sin(elR) * 10,
-            -Math.cos(elR) * Math.cos(azR) * 10
-          );
+          this.camera.lookAt(lx * 10, 0.35 + ly * 10, lz * 10);
           this.camera.updateMatrixWorld(true);
+
+          // Automatic ND5 optical solar filter when magnifying onto the daytime Sun
+          const sunH = this.cosmos.getPovBodyHorizon('sun');
+          const curMag = fovToTelescopeMag(this.pov.fov);
+          let targetSolarFilter = 0;
+          if (sunH && sunH.altDeg >= -1.5 && curMag > 2.2) {
+            const dotSun = THREE.MathUtils.clamp(
+              lx * sunH.vec[0] + ly * sunH.vec[1] + lz * sunH.vec[2],
+              -1,
+              1
+            );
+            const sunAngDeg = Math.acos(dotSun) * (180 / Math.PI);
+            const angGate = 1 - smoothstep(3.8, Math.max(9.5, this.pov.fov * 0.85), sunAngDeg);
+            targetSolarFilter = smoothstep(2.2, 5.2, curMag) * angGate;
+          }
+          this.pov.solarFilterMix += (targetSolarFilter - this.pov.solarFilterMix) * (reduced ? 1 : Math.min(1, dt * 7.5));
+          this.cosmos.setTelescopeOptics({ active: true, solarFilterMix: this.pov.solarFilterMix });
 
           this.onTelescopeTelemetry({
             azDeg: this.pov.azDeg,
             elevDeg: this.pov.elevDeg,
-            zoomLabel: this.getZoomLabel()
+            fovDeg: this.pov.fov,
+            zoomLabel: this.getZoomLabel(),
+            targetBody: this.pov.targetBody,
+            solarFilterActive: this.pov.solarFilterMix > 0.35
           });
 
           this.renderer.render(this.scene, this.camera);
@@ -1495,14 +1957,90 @@ export class ThreeGearMachine {
       } else {
         this._applyCameraFov();
         const portrait = this._isPortrait();
-        this._setClusterLayout(portrait);
-        this.cam.targetLook.copy(portrait ? SPACE_CAM_TARGET_PORTRAIT : SPACE_CAM_HOME.target);
+        const rootPos = portrait ? PORTRAIT_ROOT_POS : DESKTOP_ROOT_POS;
+        const rootScale = portrait ? 0.80 : 0.69;
+        const keyScale = portrait ? 0.76 : 0.68;
+
+        if (!this.state.isDraggingTurret) {
+          if (reduced) {
+            this.state.turretAngle = this.state.turretTargetAngle;
+            this.state.turretVel = 0;
+            this.state.turretCoasting = false;
+          } else if (this.state.turretCoasting) {
+            this.state.turretVel *= Math.exp(-4.2 * dt);
+            this.state.turretAngle += this.state.turretVel * dt;
+            if (Math.abs(this.state.turretVel) < 0.45) {
+              this.state.turretCoasting = false;
+              this.state.turretVel = 0;
+              this.snapTurretToNearestFace();
+            }
+          } else {
+            const tr = this._integrateSpring(
+              this.state.turretAngle,
+              this.state.turretVel,
+              this.state.turretTargetAngle,
+              115,
+              18,
+              dt
+            );
+            this.state.turretAngle = tr.pos;
+            this.state.turretVel = tr.vel;
+          }
+        }
+
+        if (this.portraitTurret) {
+          if (this.state.hasRotatedTurret && this.state.turretHintFade > 0) {
+            this.state.turretHintFade = Math.max(0, this.state.turretHintFade - dt * 1.8);
+            this.portraitTurret.setHintOpacity(this.state.turretHintFade);
+          } else if (!this.state.hasRotatedTurret && !reduced) {
+            this.portraitTurret.hintGroup.rotation.y = Math.sin(now * 0.0024) * 0.14;
+          }
+        }
+
         this.clustersRoot.visible = true;
-        this.clustersRoot.position.set(0, 0, 0);
-        this.clustersRoot.rotation.set(0, 0, 0);
-        this.clustersRoot.scale.setScalar(0.90);
+        this.clustersRoot.position.copy(rootPos);
+        this.clustersRoot.rotation.set(0, this.state.turretAngle, 0);
+        this.clustersRoot.scale.setScalar(rootScale);
+        this._setClusterLayout();
         this.clustersRoot.updateMatrixWorld(true);
         this.warmFillLight.position.set(0, -1.2, 7.0);
+
+        const facing = Math.cos(this.state.turretAngle) >= 0 ? 'date' : 'time';
+        if (facing !== this.state.lastFacingCluster) {
+          this.state.lastFacingCluster = facing;
+          if (facing !== this.state.engagedCluster) {
+            this.onTurretFaceChange(facing);
+          }
+        }
+
+        const deg = ((Math.round((this.state.turretAngle * 180) / Math.PI) % 360) + 360) % 360;
+        if (deg !== this.state.lastReportedTurretDeg) {
+          this.state.lastReportedTurretDeg = deg;
+          this.onTurretAngleChange(deg);
+        }
+
+        // Synchronized Camera Focus & Spotlight tracking active gear
+        const activeState = this.gearStates[engagedId];
+        const baseTarget = portrait ? SPACE_CAM_TARGET_PORTRAIT : SPACE_CAM_HOME.target;
+        if (activeState && activeState.gearObj) {
+          const engagedWorldPos = new THREE.Vector3();
+          const engagedWorldQuat = new THREE.Quaternion();
+          activeState.gearObj.group.getWorldPosition(engagedWorldPos);
+          activeState.gearObj.group.getWorldQuaternion(engagedWorldQuat);
+          const engagedWorldFwd = new THREE.Vector3(0, 0, 1).applyQuaternion(engagedWorldQuat);
+
+          if (this.gearFocusLight) {
+            this.gearFocusLight.intensity = 3.6;
+            this.gearFocusLight.position.copy(engagedWorldPos).addScaledVector(engagedWorldFwd, 1.9);
+          }
+
+          const focusOffX = THREE.MathUtils.clamp((engagedWorldPos.x - rootPos.x) * 0.32, -0.70, 0.70);
+          const focusOffY = THREE.MathUtils.clamp((engagedWorldPos.y - rootPos.y) * 0.16, -0.40, 0.40);
+          this.cam.targetLook.set(baseTarget.x + focusOffX, baseTarget.y + focusOffY, baseTarget.z);
+        } else {
+          if (this.gearFocusLight) this.gearFocusLight.intensity = 3.6;
+          this.cam.targetLook.copy(baseTarget);
+        }
 
         this.cam.theta += (this.cam.targetTheta - this.cam.theta) * camLerp;
         this.cam.phi += (this.cam.targetPhi - this.cam.phi) * camLerp;
@@ -1523,14 +2061,14 @@ export class ThreeGearMachine {
           this.state.keyPos.copy(socketPose.pos);
           this.state.keyQuat.copy(socketPose.quat);
         } else {
-          const kLerp = Math.min(1, dt * 8.5);
+          const kLerp = Math.min(1, dt * 10.5);
           this.state.keyPos.lerp(socketPose.pos, kLerp);
           this.state.keyQuat.slerp(socketPose.quat, kLerp);
         }
         this.keyRig.root.visible = true;
         this.keyRig.root.position.copy(this.state.keyPos);
         this.keyRig.root.quaternion.copy(this.state.keyQuat);
-        this.keyRig.root.scale.setScalar(0.84);
+        this.keyRig.root.scale.setScalar(keyScale);
         this.keyRig.root.updateMatrixWorld(true);
 
         this.renderer.render(this.scene, this.camera);
