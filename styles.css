@@ -95,7 +95,7 @@ body {
   max-width: min(680px, calc(100vw - 240px));
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 6px;
   pointer-events: none;
   text-shadow: 0 1px 4px rgba(0, 0, 0, 0.98), 0 2px 14px rgba(0, 0, 0, 0.92);
   z-index: 4;
@@ -110,30 +110,24 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.readout-secondary {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 7px;
-  font-family: var(--font-mono);
-  font-size: clamp(0.72rem, 1.3vw, 0.84rem);
-  color: var(--text-secondary);
-}
-
 .readout-controls-line {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: clamp(0.72rem, 1.2vw, 0.82rem);
-  color: var(--gold-bright);
+  font-size: clamp(0.72rem, 1.15vw, 0.80rem);
+  color: var(--text-secondary);
   pointer-events: auto;
 }
 
-.active-gear-text {
-  font-weight: 700;
-  letter-spacing: 0.05em;
+.readout-controls-line .inline-text-action {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.readout-controls-line .inline-text-action:hover,
+.readout-controls-line .inline-text-action:focus-visible {
   color: var(--gold-bright);
 }
 
@@ -208,14 +202,22 @@ body {
 .inline-select {
   background: transparent;
   border: 0;
-  border-bottom: 1px solid color-mix(in oklab, var(--gold) 45%, transparent);
-  color: var(--text-primary);
+  border-bottom: 1px solid color-mix(in oklab, var(--text-muted) 42%, transparent);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
   font-size: inherit;
-  padding: 2px 4px;
+  font-weight: 500;
+  padding: 2px 2px 3px 0;
   max-width: 220px;
   cursor: pointer;
   text-shadow: 0 2px 8px rgba(0, 0, 0, 0.95);
+  transition: color 0.16s ease, border-color 0.16s ease;
+}
+
+.inline-select:hover,
+.inline-select:focus-visible {
+  color: var(--gold-bright);
+  border-bottom-color: color-mix(in oklab, var(--gold-bright) 68%, transparent);
 }
 
 .inline-select option {
@@ -839,12 +841,6 @@ body[data-pov="earth"] .mobile-axis-control {
     padding-block: 2px;
   }
 
-  /* Replace Driving label with two-row mobile watchmaker footer + zoom */
-  .active-gear-text,
-  .active-gear-text + .sep {
-    display: none;
-  }
-
   .mobile-gear-bar {
     display: block;
   }
@@ -931,12 +927,6 @@ body[data-pov="earth"] .mobile-axis-control {
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-  }
-
-  /* Hide sky telemetry & ISO copy on narrow viewports so the Orrery breathes */
-  .readout-secondary,
-  .hud-text-output .iso-copy {
-    display: none;
   }
 
   .readout-controls-line {

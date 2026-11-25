@@ -3,7 +3,7 @@
  * Manages Temporal Plain date/time state, 2-POV toggle ('space' <-> 'earth'),
  * box-free plain text readout, 3D Earth country selection, and keyboard rotation.
  */
-import { ThreeGearMachine } from './three-machine.js?v=11';
+import { ThreeGearMachine } from './three-machine.js?v=13';
 import {
   COUNTRY_TIMEZONES,
   detectLocalTimezone,
@@ -65,6 +65,7 @@ class FullScreenOrreryApp {
     this._copyFeedbackTimer = null;
     this._scopeNotice = '';
     this._scopeNoticeTimer = null;
+    this._skySummaryText = '';
     this.state.telescopeTarget = null;
     this._lastClusterGear = { date: 'year', time: 'hour' };
 
@@ -156,7 +157,7 @@ class FullScreenOrreryApp {
       onTurretFaceChange: (cluster) => {
         let target = this._lastClusterGear[cluster];
         if (this.state.is24h && target === 'ampm') target = 'hour';
-        this.engageGear(target, { announce: false, rotateToFace: false });
+        this.engageGear(target, { announce: false, rotateToFace: false, focusStructure: false });
       },
       onTurretAngleChange: (deg) => {
         if (this.dom.btnAxisScrub) {
@@ -168,7 +169,7 @@ class FullScreenOrreryApp {
     this._populateCountrySelect(localTz);
     this._initAllGearLabels();
     this._bindControls();
-    this.engageGear('year', { announce: false });
+    this.engageGear('year', { announce: false, focusStructure: false });
     this.machine.highlightCountry(this.state.countryId);
     this._syncUI({ announce: false });
 
@@ -374,7 +375,7 @@ class FullScreenOrreryApp {
     }
   }
 
-  engageGear(id, { announce = true, rotateToFace = true } = {}) {
+  engageGear(id, { announce = true, rotateToFace = true, focusStructure = true } = {}) {
     const gs = this.machine.gearStates[id];
     if (!gs) return;
     if (gs.isLocked) {
@@ -383,9 +384,11 @@ class FullScreenOrreryApp {
     }
 
     this.state.engagedGearId = id;
-    this.machine.setEngagedGear(id, { rotateToFace });
+    this.machine.setEngagedGear(id, { rotateToFace, focusStructure });
 
-    this.dom.activeGearText.textContent = `Driving: ${GEAR_LABELS[id]}`;
+    if (this.dom.activeGearText) {
+      this.dom.activeGearText.textContent = `Driving: ${GEAR_LABELS[id]}`;
+    }
     this._syncMobileGearBar();
     this._syncKeySpinbuttonAria();
     this._syncRemoteDisplay();
@@ -642,8 +645,12 @@ class FullScreenOrreryApp {
     const iso = tm.toISOString(this.state);
 
     this.dom.savedPrimary.textContent = `${dateStr} · ${timeStr}`;
-    this.dom.savedSky.textContent = this.dom.readoutSky.textContent;
-    this.dom.savedCopyIso.textContent = iso;
+    if (this.dom.savedSky) {
+      this.dom.savedSky.textContent = this._skySummaryText || (this.dom.readoutSky ? this.dom.readoutSky.textContent : '');
+    }
+    if (this.dom.savedCopyIso) {
+      this.dom.savedCopyIso.textContent = iso;
+    }
     return { dateStr, timeStr, iso };
   }
 
@@ -851,7 +858,9 @@ class FullScreenOrreryApp {
     const iso = tm.toISOString(this.state);
 
     this.dom.readoutPrimary.textContent = `${dateStr} · ${timeStr}`;
-    this.dom.btnCopyIso.textContent = iso;
+    if (this.dom.btnCopyIso) {
+      this.dom.btnCopyIso.textContent = iso;
+    }
 
     const c = computeCelestialState({
       year: this.state.year,
@@ -874,8 +883,11 @@ class FullScreenOrreryApp {
     const offsetStr = formatOffsetLabel(this.state.tzOffsetHours);
     const meridianStr = formatMeridianLabel(c.tzLonDeg);
 
-    this.dom.readoutSky.textContent =
+    this._skySummaryText =
       `${this.state.countryName} (${offsetStr} · ${meridianStr}) · ${icon} ${weather.label} ${sunSign} · ${c.moonPhaseName}`;
+    if (this.dom.readoutSky) {
+      this.dom.readoutSky.textContent = this._skySummaryText;
+    }
 
     this._updateBottomHint();
     this._syncTelescopeTargetsUi();
@@ -955,8 +967,12 @@ class FullScreenOrreryApp {
     }
     this.dom.btnFormatToggle.addEventListener('click', () => this.toggleTimeFormat());
     this.dom.btnNow.addEventListener('click', () => this.syncToNow());
-    this.dom.btnCopyIso.addEventListener('click', () => this.copyIso(this.dom.btnCopyIso));
-    this.dom.savedCopyIso.addEventListener('click', () => this.copyIso(this.dom.savedCopyIso));
+    if (this.dom.btnCopyIso) {
+      this.dom.btnCopyIso.addEventListener('click', () => this.copyIso(this.dom.btnCopyIso));
+    }
+    if (this.dom.savedCopyIso) {
+      this.dom.savedCopyIso.addEventListener('click', () => this.copyIso(this.dom.savedCopyIso));
+    }
 
     this.dom.btnZoomIn.addEventListener('click', () => {
       const factor = this.state.povMode === 'earth' && this.state.earthStep === 'telescope' ? 1.45 : 1.25;

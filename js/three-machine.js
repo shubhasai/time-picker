@@ -133,7 +133,9 @@ export class ThreeGearMachine {
       hasRotatedTurret: false,
       turretHintFade: 1.0,
       lastFacingCluster: 'date',
-      lastReportedTurretDeg: 0
+      lastReportedTurretDeg: 0,
+      structureFocused: false,
+      structureFocusMix: 0
     };
 
     this.cam = {
@@ -595,7 +597,7 @@ export class ThreeGearMachine {
     this.refreshGearLabels(id);
   }
 
-  setEngagedGear(id, { rotateToFace = true } = {}) {
+  setEngagedGear(id, { rotateToFace = true, focusStructure = true } = {}) {
     const g = this.gearStates[id];
     if (!g) return;
     const prevCluster = this.state.engagedCluster;
@@ -623,12 +625,24 @@ export class ThreeGearMachine {
       }
     }
 
+    if (focusStructure && this.state.povMode === 'space') {
+      this.setStructureFocused(true);
+      this.cam.targetPhi = SPACE_CAM_HOME.phi;
+    }
+
     if (rotateToFace) {
       this.setTurretFace(g.cluster);
       if (this.state.povMode === 'space') {
         const gearSide = g.basePos.x < -0.5 ? -0.09 : g.basePos.x > 0.5 ? 0.09 : 0;
         this.cam.targetTheta = gearSide;
       }
+    }
+  }
+
+  setStructureFocused(focused) {
+    this.state.structureFocused = Boolean(focused);
+    if (this.prefersReducedMotion()) {
+      this.state.structureFocusMix = this.state.structureFocused ? 1 : 0;
     }
   }
 
@@ -686,6 +700,7 @@ export class ThreeGearMachine {
         this.updateAstronomy(this.celestialState, this.weatherState);
       }
       this.keyRig.root.visible = true;
+      this.setStructureFocused(false);
       this.cam.targetTheta = SPACE_CAM_HOME.theta;
       this.cam.targetPhi = SPACE_CAM_HOME.phi;
       this.cam.targetRadius = SPACE_CAM_HOME.radius;
@@ -921,6 +936,7 @@ export class ThreeGearMachine {
         }
       }
     } else {
+      this.setStructureFocused(false);
       this.cam.targetRadius = SPACE_CAM_HOME.radius;
       if (this.prefersReducedMotion()) {
         this.cam.radius = SPACE_CAM_HOME.radius;
@@ -1264,6 +1280,8 @@ export class ThreeGearMachine {
         if (hitData.interactiveType === 'key') {
           if (this.state.povMode === 'earth' && this.state.earthStep === 'room') {
             this.setEarthStep('remote');
+          } else if (this.state.povMode === 'space') {
+            this.setStructureFocused(true);
           }
           mode = 'key';
           this.state.isDraggingKey = true;
@@ -1614,7 +1632,10 @@ export class ThreeGearMachine {
         } else if (roomClickAction === 'monitorScreen') {
           this.onRequestSpacePov();
         } else if (earthClickCandidate) {
+          this.setStructureFocused(false);
           this.onSelectCountry(earthClickCandidate, { enterPov: false });
+        } else if (this.state.povMode === 'space') {
+          this.setStructureFocused(false);
         }
       }
       earthClickCandidate = null;
@@ -1997,10 +2018,17 @@ export class ThreeGearMachine {
           }
         }
 
+        const focusTarget = this.state.structureFocused ? 1 : 0;
+        this.state.structureFocusMix += (focusTarget - this.state.structureFocusMix) * (reduced ? 1 : Math.min(1, dt * 6.5));
+        const sMix = this.state.structureFocusMix;
+        const focusDz = (portrait ? 2.65 : 2.95) * sMix;
+        const focusDy = (portrait ? 0.95 : 1.15) * sMix;
+        const focusScaleMul = 1 + 0.06 * sMix;
+
         this.clustersRoot.visible = true;
-        this.clustersRoot.position.copy(rootPos);
+        this.clustersRoot.position.set(rootPos.x, rootPos.y + focusDy, rootPos.z + focusDz);
         this.clustersRoot.rotation.set(0, this.state.turretAngle, 0);
-        this.clustersRoot.scale.setScalar(rootScale);
+        this.clustersRoot.scale.setScalar(rootScale * focusScaleMul);
         this._setClusterLayout();
         this.clustersRoot.updateMatrixWorld(true);
         this.warmFillLight.position.set(0, -1.2, 7.0);
@@ -2022,6 +2050,7 @@ export class ThreeGearMachine {
         // Synchronized Camera Focus & Spotlight tracking active gear
         const activeState = this.gearStates[engagedId];
         const baseTarget = portrait ? SPACE_CAM_TARGET_PORTRAIT : SPACE_CAM_HOME.target;
+        const baseLookY = baseTarget.y - 0.50 * sMix;
         if (activeState && activeState.gearObj) {
           const engagedWorldPos = new THREE.Vector3();
           const engagedWorldQuat = new THREE.Quaternion();
@@ -2034,12 +2063,12 @@ export class ThreeGearMachine {
             this.gearFocusLight.position.copy(engagedWorldPos).addScaledVector(engagedWorldFwd, 1.9);
           }
 
-          const focusOffX = THREE.MathUtils.clamp((engagedWorldPos.x - rootPos.x) * 0.32, -0.70, 0.70);
-          const focusOffY = THREE.MathUtils.clamp((engagedWorldPos.y - rootPos.y) * 0.16, -0.40, 0.40);
-          this.cam.targetLook.set(baseTarget.x + focusOffX, baseTarget.y + focusOffY, baseTarget.z);
+          const focusOffX = THREE.MathUtils.clamp((engagedWorldPos.x - this.clustersRoot.position.x) * 0.32, -0.70, 0.70);
+          const focusOffY = THREE.MathUtils.clamp((engagedWorldPos.y - this.clustersRoot.position.y) * 0.16, -0.40, 0.40);
+          this.cam.targetLook.set(baseTarget.x + focusOffX, baseLookY + focusOffY, baseTarget.z);
         } else {
           if (this.gearFocusLight) this.gearFocusLight.intensity = 3.6;
-          this.cam.targetLook.copy(baseTarget);
+          this.cam.targetLook.set(baseTarget.x, baseLookY, baseTarget.z);
         }
 
         this.cam.theta += (this.cam.targetTheta - this.cam.theta) * camLerp;
@@ -2068,7 +2097,7 @@ export class ThreeGearMachine {
         this.keyRig.root.visible = true;
         this.keyRig.root.position.copy(this.state.keyPos);
         this.keyRig.root.quaternion.copy(this.state.keyQuat);
-        this.keyRig.root.scale.setScalar(keyScale);
+        this.keyRig.root.scale.setScalar(keyScale * focusScaleMul);
         this.keyRig.root.updateMatrixWorld(true);
 
         this.renderer.render(this.scene, this.camera);
